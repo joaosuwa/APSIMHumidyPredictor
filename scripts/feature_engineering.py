@@ -180,15 +180,26 @@ def add_apsim_features(df: pd.DataFrame, include_relative: bool = True) -> pd.Da
     return df
 
 
+def drop_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Remove as colunas da lista do DataFrame (ignora nomes inexistentes)."""
+    return df.drop(columns=[c for c in columns if c in df.columns])
+
+
 def build_report_features(
     report_path: str | Path = DEFAULT_REPORT,
     output_path: str | Path = DEFAULT_OUTPUT,
     include_relative: bool = True,
+    columns_to_drop: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Le, filtra e enriquece o Report.csv, salvando o resultado em CSV."""
+    """Le, filtra e enriquece o Report.csv, salvando o resultado em CSV.
+
+    Se columns_to_drop for informado, remove essas colunas antes de salvar.
+    """
     df = read_apsim_report(report_path)
     df = filter_to_crop_window(df)
     df = add_apsim_features(df, include_relative=include_relative)
+    if columns_to_drop:
+        df = drop_columns(df, columns_to_drop)
     df.to_csv(output_path, index=False)
     return df
 
