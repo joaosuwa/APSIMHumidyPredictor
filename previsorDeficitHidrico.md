@@ -31,17 +31,20 @@ Construir um modelo de aprendizado de máquina que utilize dados provenientes de
 | Escoamento superficial de água | Solo | - | APSIM NG |
 | Drenagem | Solo | - | APSINM NG |
 | Água Total Disponível no Solo (TAW) | Solo | Capacidade TOTAL de água disponível no solo | APSINM NG | 
+| Dias desde semeadura | Planta | - | APSINM NG |
 
 
 ## Como serão obtidos os dados:
 
 ### Variáveis report no APSINM NG:
 
-Umidade do solo, Umidade do solo histórica, Irrigação aplicada, Irrigação aplicada no dia posterior, Profundidade radicular Zr, Escoamento superficial de água e Drenagem
+Irrigação aplicada, Irrigação aplicada no dia posterior, Profundidade radicular Zr, Escoamento superficial de água e Drenagem
 
 ### Cálculos feitos usando dados do APSINM NG:
 
-ETreal = [Soil].SoilWater.Es (Evaporação do solo) + [Plant].Root.WaterUptake (Transpiração da planta)
+Umidade do solo, Umidade do solo histórica = SW até zona radicular.
+
+ETreal = [Soil].SoilWater.Es (Evaporação do solo) + [Plant].Leaf.Transpiration (Transpiração da planta)
 
 Depleção de água no solo (Dr) = DUL - SW de todas as camadas até zona radicular (Cálculo já feito no simulador)
 
@@ -55,7 +58,7 @@ Mês do ano =
 $$Month_{\sin} = \sin\left(2\pi \frac{Month}{12}\right)$$
 $$Month_{\cos} = \cos\left(2\pi \frac{Month}{12}\right)$$
 
-Água Total Disponível no Solo (TAW) = (CC - PMP) x Zr
+Água Total Disponível no Solo (TAW) = (DUL - LL)
 
 ### NASA-POWER | LocalisAgro:
 
