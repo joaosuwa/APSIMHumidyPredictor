@@ -2,7 +2,7 @@
 
 ## Ideia do projeto:
 
-Construir um modelo de aprendizado de máquina que utilize dados provenientes de clima, simulações no simulador APSINM NG e previsões de chuva históricas para prever o déficit hídrico do solo.
+Construir um modelo de aprendizado de máquina que utilize dados provenientes de clima, simulações no simulador APSINM NG e previsões de chuva históricas para prever o déficit hídrico do solo. O modelo de déficit Hídrico futuro vai ser utilizado para tomar uma decisão de irrigação: Se déficit de hoje cair em relação ao RAW (irrigar até o CC), se não: 50% do Dr.
 
 ## Variáveis para o modelo:
 
@@ -69,3 +69,11 @@ OBS: INMET contém dados nulos (ausentes). NASA-POWER contém todos os dados no 
 ### GFS Archive (Dados disponíveis desde 13/06/2019):
 
 Previsão de chuva, Previsão de ET0
+
+## Fonte dos dados coletados:
+
+### GFS Archive:
+Chuva acumulada futura (24h), temperatura futura (0h-6h,6h-12h,12h-18h,18h,24h) e radiação futura (0h-6h,6h-12h,12h-18h,18h,24h).
+
+### NASA POWER:
+Dados históricos de clima
