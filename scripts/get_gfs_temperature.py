@@ -83,6 +83,44 @@ PRODUCTS = [
     },
 ]
 
+# Cada produto chega do GDEX no horário final do intervalo. Portanto,
+# estes são os horários que devem ser usados na consolidação diária.
+INTERVAL_END_HOURS = {
+    "Tmax_0_6": 6,
+    "Tmax_6_12": 12,
+    "Tmax_12_18": 18,
+    "Tmax_18_24": 0,
+    "Tmin_0_6": 6,
+    "Tmin_6_12": 12,
+    "Tmin_12_18": 18,
+    "Tmin_18_24": 0,
+}
+
+FINAL_COLUMNS = [
+    "datetime",
+    "Tmax_0_6",
+    "Tmax_6_12",
+    "Tmax_12_18",
+    "Tmax_18_24",
+    "Tmin_0_6",
+    "Tmin_6_12",
+    "Tmin_12_18",
+    "Tmin_18_24",
+    "Tmax_24h_C",
+    "Tmin_24h_C",
+    "Tmean_24h_C",
+]
+
+FINAL_OUTPUT_FILE = (
+    OUTPUT_DIR
+    / "gfs_temperature_20190613_20260813.csv"
+)
+
+# Os downloads brutos possuem dois pontos. Use o padrão correspondente ao
+# local desejado para não misturar Alegrete e Nova Ramada.
+ALEGRETE_FILE_PATTERN = "*29.75S_55.75W.csv"
+NOVA_RAMADA_FILE_PATTERN = "*28.0S_53.75W.csv"
+
 
 # ============================================================
 # SUBMIT
@@ -225,13 +263,11 @@ def purge_request(request_id):
 # LER TODOS OS CSVs
 # ============================================================
 
-def read_downloaded_files(directory):
+def read_downloaded_files(directory, file_pattern="*.csv"):
 
     directory = Path(directory)
 
-    csv_files = list(
-        directory.rglob("*.csv")
-    )
+    csv_files = list(directory.rglob(file_pattern))
 
     print(
         f"\nEncontrados {len(csv_files)} CSVs "
@@ -314,11 +350,13 @@ def find_temperature_column(df):
 
 def process_temperature_directory(
     directory,
-    variable_name
+    variable_name,
+    file_pattern="*.csv"
 ):
 
     df = read_downloaded_files(
-        directory
+        directory,
+        file_pattern=file_pattern
     )
 
     print("\nColunas encontradas:")
@@ -376,7 +414,7 @@ def process_temperature_directory(
 # PROCESSAR UMA REQUEST
 # ============================================================
 
-def process_product(product_info):
+def process_product(product_info, file_pattern="*.csv"):
 
     name = product_info["name"]
 
@@ -423,26 +461,8 @@ def process_product(product_info):
 
     df = process_temperature_directory(
         output_dir,
-        name
-    )
-
-    # --------------------------------------------------------
-    # Salvar consolidado
-    # --------------------------------------------------------
-
-    consolidated_file = (
-        OUTPUT_DIR
-        / f"{name}.csv"
-    )
-
-    df.to_csv(
-        consolidated_file,
-        index=False
-    )
-
-    print(
-        f"\nArquivo consolidado:"
-        f"\n{consolidated_file}"
+        name,
+        file_pattern=file_pattern
     )
 
     # --------------------------------------------------------
@@ -457,88 +477,115 @@ def process_product(product_info):
 
 
 # ============================================================
-# MAIN
+# REUSE LOCAL DATA
 # ============================================================
 
-def main():
+def load_or_process_product(
+    product_info,
+    fetch_missing=False,
+    file_pattern="*.csv"
+):
 
-    all_results = {}
+    name = product_info["name"]
+    raw_directory = OUTPUT_DIR / name
 
-    for product in PRODUCTS:
+    # Sempre lê os downloads brutos em Kelvin. A conversão para Celsius
+    # acontece em process_temperature_directory e permanece em memória.
+    matching_files = list(raw_directory.rglob(file_pattern))
 
-        df = process_product(
-            product
+    if raw_directory.exists() and matching_files:
+
+        print(
+            f"\nUsando download bruto existente: {raw_directory} "
+            f"({len(matching_files)} arquivo(s))"
         )
 
-        all_results[
-            product["name"]
-        ] = df
-
-    print("\n")
-    print("================================================")
-    print("TODAS AS REQUESTS FINALIZADAS")
-    print("================================================")
-
-    # ========================================================
-    # MONTAR DATAFRAME FINAL
-    # ========================================================
-
-    print("\nProcessando resultados...")
-
-    final_df = None
-
-    # --------------------------------------------------------
-    # Cada produto possui:
-    #
-    # datetime
-    # temperature_C
-    #
-    # Vamos juntar todos pelo datetime.
-    # --------------------------------------------------------
-
-    for name, df in all_results.items():
-
-        temp = df[
-            [
-                "datetime",
-                "temperature_C"
-            ]
-        ].copy()
-
-        temp = temp.rename(
-            columns={
-                "temperature_C": name
-            }
+        df = process_temperature_directory(
+            raw_directory,
+            name,
+            file_pattern=file_pattern
         )
 
-        # Remover duplicatas temporais
+        return df
+
+    if not fetch_missing:
+
+        raise FileNotFoundError(
+            f"Local data not found for {name}. "
+            "Use main(fetch_missing=True) to download GFS data."
+        )
+
+    return process_product(
+        product_info,
+        file_pattern=file_pattern
+    )
+
+
+# ============================================================
+# DAILY CONSOLIDATION
+# ============================================================
+
+def build_daily_temperature_dataframe(all_results):
+
+    daily_df = None
+
+    for product_info in PRODUCTS:
+
+        name = product_info["name"]
+        df = all_results[name]
+
+        temp = df[["datetime", "temperature_C"]].copy()
+        temp["datetime"] = pd.to_datetime(
+            temp["datetime"],
+            errors="coerce"
+        )
+        temp["temperature_C"] = pd.to_numeric(
+            temp["temperature_C"],
+            errors="coerce"
+        )
+        temp = temp.dropna(subset=["datetime"])
+
+        # GDEX returns each interval at its ending time:
+        # 06:00, 12:00, 18:00 or 00:00.
+        expected_hour = INTERVAL_END_HOURS[name]
+        temp = temp[temp["datetime"].dt.hour == expected_hour]
+
+        # Keep the first occurrence, as the previous script did when the
+        # historical directory contained duplicated timestamps.
+        temp = temp.sort_values("datetime")
         temp = temp.drop_duplicates(
-            subset=["datetime"]
+            subset=["datetime"],
+            keep="first"
         )
 
-        if final_df is None:
+        temp["date"] = temp["datetime"].dt.normalize()
 
-            final_df = temp
+        # 00:00 is the end of the previous day's 18:00-24:00 interval.
+        if name.endswith("18_24"):
+            temp["date"] = temp["date"] - pd.Timedelta(days=1)
 
+        temp = temp.sort_values("date")
+        temp = temp.drop_duplicates(
+            subset=["date"],
+            keep="first"
+        )
+        temp = temp[["date", "temperature_C"]].rename(
+            columns={"temperature_C": name}
+        )
+
+        if daily_df is None:
+            daily_df = temp
         else:
-
-            final_df = final_df.merge(
+            daily_df = daily_df.merge(
                 temp,
-                on="datetime",
+                on="date",
                 how="outer"
             )
 
-    # --------------------------------------------------------
-    # Ordenar
-    # --------------------------------------------------------
+    if daily_df is None:
+        raise RuntimeError("No temperature data was consolidated.")
 
-    final_df = final_df.sort_values(
-        "datetime"
-    ).reset_index(drop=True)
-
-    # ========================================================
-    # Tmax/Tmin DAS 24 H
-    # ========================================================
+    daily_df = daily_df.sort_values("date").reset_index(drop=True)
 
     max_columns = [
         "Tmax_0_6",
@@ -546,7 +593,6 @@ def main():
         "Tmax_12_18",
         "Tmax_18_24",
     ]
-
     min_columns = [
         "Tmin_0_6",
         "Tmin_6_12",
@@ -554,70 +600,79 @@ def main():
         "Tmin_18_24",
     ]
 
-    # ========================================================
-    # IMPORTANTE:
-    #
-    # Cada linha datetime representa a inicialização do GFS.
-    #
-    # O Tmax_24h é a maior Tmax entre os quatro intervalos.
-    # O Tmin_24h é a menor Tmin entre os quatro intervalos.
-    # ========================================================
+    daily_df["Tmax_24h_C"] = daily_df[max_columns].max(axis=1)
+    daily_df["Tmin_24h_C"] = daily_df[min_columns].min(axis=1)
 
-    final_df["Tmax_24h_C"] = final_df[
-        max_columns
-    ].max(axis=1)
-
-    final_df["Tmin_24h_C"] = final_df[
-        min_columns
-    ].min(axis=1)
-
-    final_df["Tmean_24h_C"] = (
-        final_df["Tmax_24h_C"]
-        + final_df["Tmin_24h_C"]
+    # Requested formula: (Tmax24 - Tmin24) / 2.
+    daily_df["Tmean_24h_C"] = (
+        daily_df["Tmax_24h_C"]
+        - daily_df["Tmin_24h_C"]
     ) / 2.0
 
-    # ========================================================
-    # SALVAR
-    # ========================================================
+    daily_df = daily_df.rename(columns={"date": "datetime"})
+    daily_df["datetime"] = daily_df["datetime"].dt.strftime("%Y-%m-%d")
 
-    output_file = (
-        OUTPUT_DIR
-        / "gfs_temperature_20190613_20260813.csv"
+    return daily_df.reindex(columns=FINAL_COLUMNS)
+
+
+def generate_gfs_temperature_file(
+    fetch_missing=False,
+    output_file=FINAL_OUTPUT_FILE,
+    file_pattern=ALEGRETE_FILE_PATTERN
+):
+
+    all_results = {}
+
+    for product in PRODUCTS:
+
+        all_results[product["name"]] = load_or_process_product(
+            product,
+            fetch_missing=fetch_missing,
+            file_pattern=file_pattern
+        )
+
+    final_df = build_daily_temperature_dataframe(all_results)
+
+    output_file = Path(output_file)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    final_df.to_csv(output_file, index=False)
+
+    return final_df
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main(fetch_missing=False):
+
+    final_df = generate_gfs_temperature_file(
+        fetch_missing=fetch_missing,
+        file_pattern=ALEGRETE_FILE_PATTERN
     )
 
-    final_df.to_csv(
-        output_file,
-        index=False
+    print("\nArquivo final:")
+    print(FINAL_OUTPUT_FILE)
+    print(f"Número de registros: {len(final_df)}")
+
+    return final_df
+
+
+def main_nova_ramada(fetch_missing=False):
+    """Gera a série diária usando o ponto GFS de Nova Ramada."""
+
+    output_file = OUTPUT_DIR / "gfs_temperature_20190613_20260813_Nova_Ramada.csv"
+    final_df = generate_gfs_temperature_file(
+        fetch_missing=fetch_missing,
+        output_file=output_file,
+        file_pattern=NOVA_RAMADA_FILE_PATTERN
     )
 
-    print("\n")
-    print("================================================")
-    print("ARQUIVO FINAL")
-    print("================================================")
-
+    print("\nArquivo final de Nova Ramada:")
     print(output_file)
+    print(f"Número de registros: {len(final_df)}")
 
-    print("\nNúmero de registros:")
-    print(len(final_df))
-
-    print("\nPrimeiras linhas:")
-    print(
-        final_df.head(10).to_string(
-            index=False
-        )
-    )
-
-    print("\nÚltimas linhas:")
-    print(
-        final_df.tail(10).to_string(
-            index=False
-        )
-    )
-
-
-# ============================================================
-# EXECUTAR
-# ============================================================
+    return final_df
 
 if __name__ == "__main__":
 
