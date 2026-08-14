@@ -1,5 +1,32 @@
 # Previsor de deficit hidrico
 
+## Organização do repositório
+
+Os dados ficam separados em duas áreas:
+
+- `data/raw/apsim`: arquivos `Report.csv` originais do APSIM;
+- `data/raw/nasa_power`: dados meteorológicos originais da NASA POWER;
+- `data/raw/gfs`: previsões e downloads brutos do GFS/GDEX;
+- `data/processed/apsim`, `data/processed/nasa_power` e `data/processed/gfs`: dados transformados por fonte;
+- `data/processed/validation`: resultados da validação das previsões;
+- `data/processed/model`: espaço reservado para o CSV central que será usado no treinamento do modelo.
+
+Os caminhos são definidos em `scripts/paths.py`. A leitura e a escrita de CSVs ficam centralizadas em `scripts/feature_engineering.py`, com funções específicas para APSIM, NASA POWER e GFS.
+
+Para processar o Report do APSIM:
+
+```bash
+python -m scripts.feature_engineering
+```
+
+Para validar as previsões de chuva:
+
+```bash
+python -m scripts.forecast_validation
+```
+
+Para coletar/consolidar dados de temperatura do GFS, use o módulo `scripts.gfs_data_extractor.get_gfs_data`. Downloads brutos são gravados em `data/raw/gfs/downloads` e arquivos consolidados em `data/processed/gfs`.
+
 ## Ideia do projeto:
 
 Construir um modelo de aprendizado de máquina que utilize dados provenientes de clima, simulações no simulador APSINM NG e previsões de chuva históricas para prever o déficit hídrico do solo. O modelo de déficit Hídrico futuro vai ser utilizado para tomar uma decisão de irrigação: Se déficit de hoje cair em relação ao RAW (irrigar até o CC), se não: 50% do Dr.

@@ -220,5 +220,11 @@ __marimo__/
 
 # data
 data/*
+!data/raw/
+!data/raw/**/
+!data/raw/**/.gitkeep
+!data/processed/
+!data/processed/**/
+!data/processed/**/.gitkeep
 
 gdex_token.txt

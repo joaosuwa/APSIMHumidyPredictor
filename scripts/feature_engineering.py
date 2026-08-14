@@ -6,10 +6,29 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "data"
-DEFAULT_REPORT = DATA_DIR / "milho_nova_ramada.Report.csv"
-DEFAULT_OUTPUT = DATA_DIR / "milho_nova_ramada.Report.processed.csv"
+try:
+    from .paths import (
+        PROCESSED_APSIM_DIR,
+        PROCESSED_NASA_POWER_DIR,
+        MODEL_DATA_DIR,
+        RAW_APSIM_DIR,
+        ensure_data_directories,
+    )
+except ImportError:  # Permite executar este arquivo diretamente.
+    from paths import (
+        PROCESSED_APSIM_DIR,
+        PROCESSED_NASA_POWER_DIR,
+        MODEL_DATA_DIR,
+        RAW_APSIM_DIR,
+        ensure_data_directories,
+    )
+
+
+ensure_data_directories()
+
+DEFAULT_REPORT = RAW_APSIM_DIR / "milho.Report.csv"
+DEFAULT_OUTPUT = PROCESSED_APSIM_DIR / "milho.Report.processed.csv"
+DEFAULT_MODEL_DATASET = MODEL_DATA_DIR / "training_dataset.csv"
 
 N_LAYERS = 7
 
@@ -37,6 +56,132 @@ LAYER_COLS = {
 }
 
 GROUP_COLS = ["SimulationName", "cycle_id"]
+
+
+def read_csv_files(
+    source: str | Path | list[str | Path],
+    pattern: str = "*.csv",
+    **read_csv_kwargs,
+) -> pd.DataFrame:
+    """Lê um CSV ou concatena todos os CSVs de um diretório.
+
+    Esta é a porta de entrada comum para a leitura de CSVs do projeto.
+    Regras específicas de cada fonte ficam nas funções ``read_*`` abaixo.
+    """
+    if isinstance(source, (str, Path)):
+        source_path = Path(source)
+        files = sorted(source_path.rglob(pattern)) if source_path.is_dir() else [source_path]
+    else:
+        files = [Path(path) for path in source]
+
+    if not files:
+        raise FileNotFoundError(f"Nenhum CSV encontrado em {source!s}")
+
+    frames = []
+    errors = []
+    for csv_file in files:
+        try:
+            frames.append(pd.read_csv(csv_file, **read_csv_kwargs))
+        except Exception as exc:  # mantém o erro associado ao arquivo original
+            errors.append(f"{csv_file}: {exc}")
+
+    if not frames:
+        detail = "\n".join(errors)
+        raise RuntimeError(f"Não foi possível ler os CSVs:\n{detail}")
+
+    return pd.concat(frames, ignore_index=True)
+
+
+def write_csv(df: pd.DataFrame, path: str | Path) -> Path:
+    """Salva um DataFrame em CSV, criando o diretório de destino."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False)
+    return output_path
+
+
+def write_model_dataset(
+    df: pd.DataFrame,
+    path: str | Path = DEFAULT_MODEL_DATASET,
+) -> Path:
+    """Salva o dataset central que futuramente alimentará o modelo de IA."""
+    return write_csv(df, path)
+
+
+def read_nasa_power_data(path: str | Path) -> pd.DataFrame:
+    """Lê um CSV diário da NASA POWER e adiciona a coluna ``date``."""
+    path = Path(path)
+    with path.open(encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.startswith("YEAR,"))
+    except StopIteration as exc:
+        raise ValueError(f"Cabeçalho YEAR não encontrado em {path}") from exc
+
+    df = pd.read_csv(io.StringIO("\n".join(lines[start:])))
+    df["date"] = pd.to_datetime(
+        df["YEAR"].astype(int).astype(str)
+        + "-"
+        + df["DOY"].astype(int).astype(str),
+        format="%Y-%j",
+    )
+    numeric_columns = [column for column in df.columns if column not in {"date"}]
+    df[numeric_columns] = df[numeric_columns].replace(-999, np.nan)
+    return df
+
+
+def process_nasa_power_data(
+    input_path: str | Path,
+    output_path: str | Path | None = None,
+) -> pd.DataFrame:
+    """Normaliza um arquivo NASA POWER e opcionalmente salva a versão processada."""
+    df = read_nasa_power_data(input_path)
+    if output_path is None:
+        output_path = PROCESSED_NASA_POWER_DIR / f"{Path(input_path).stem}.processed.csv"
+    write_csv(df, output_path)
+    return df
+
+
+def read_gfs_data(
+    source: str | Path | list[str | Path],
+    pattern: str = "*.csv",
+) -> pd.DataFrame:
+    """Lê e concatena CSVs brutos exportados pelo GFS/GDEX."""
+    return read_csv_files(source, pattern=pattern)
+
+
+def find_temperature_column(df: pd.DataFrame) -> str:
+    """Identifica a coluna de temperatura de um resultado GFS."""
+    candidates = [
+        column
+        for column in df.columns
+        if any(term in column.lower() for term in ("temperature", "t max", "t min"))
+    ]
+    if not candidates:
+        raise ValueError(
+            "Coluna de temperatura não encontrada. "
+            f"Colunas disponíveis: {df.columns.tolist()}"
+        )
+    return candidates[-1]
+
+
+def process_gfs_temperature_data(
+    source: str | Path,
+    variable_name: str,
+    pattern: str = "*.csv",
+) -> pd.DataFrame:
+    """Converte o resultado de temperatura do GFS de Kelvin para Celsius."""
+    df = read_gfs_data(source, pattern=pattern)
+    temperature_column = find_temperature_column(df)
+    df[temperature_column] = pd.to_numeric(df[temperature_column], errors="coerce")
+    df["temperature_C"] = df[temperature_column] - 273.15
+    if {"Date", "Time"}.issubset(df.columns):
+        df["datetime"] = pd.to_datetime(
+            df["Date"].astype(str) + " " + df["Time"].astype(str),
+            errors="coerce",
+        )
+    df["variable"] = variable_name
+    return df
 
 
 def _column_types(header: list[str]) -> list[str]:
@@ -200,7 +345,7 @@ def build_report_features(
     df = add_apsim_features(df, include_relative=include_relative)
     if columns_to_drop:
         df = drop_columns(df, columns_to_drop)
-    df.to_csv(output_path, index=False)
+    write_csv(df, output_path)
     return df
 
 

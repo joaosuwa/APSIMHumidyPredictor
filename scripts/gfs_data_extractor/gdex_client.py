@@ -27,10 +27,11 @@ import argparse
 import codecs
 import pdb
 import re
+from pathlib import Path
 
 
 BASE_URL = 'https://gdex.ucar.edu/api/'
-DEFAULT_AUTH_FILE = './gdex_token.txt'
+DEFAULT_AUTH_FILE = str(Path(__file__).resolve().parents[2] / 'gdex_token.txt')
 
 # Python 2 compatibility
 try:
