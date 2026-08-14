@@ -25,7 +25,9 @@ Para validar as previsões de chuva:
 python -m scripts.forecast_validation
 ```
 
-Para coletar/consolidar dados de temperatura do GFS, use o módulo `scripts.gfs_data_extractor.get_gfs_data`. Downloads brutos são gravados em `data/raw/gfs/downloads` e arquivos consolidados em `data/processed/gfs`.
+Para baixar os produtos GFS, execute `python -m scripts.gfs_data_extractor.get_gfs_data`. Esse comando somente faz requisições e grava os downloads brutos em `data/raw/gfs/downloads`.
+
+Para processar os downloads locais e gerar os arquivos consolidados, execute `python -m scripts.gfs_data_extractor.gfs_data_processing`. Esse comando não faz requisições externas e grava os resultados em `data/processed/gfs`.
 
 ## Ideia do projeto:
 

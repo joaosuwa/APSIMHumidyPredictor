@@ -142,48 +142,6 @@ def process_nasa_power_data(
     return df
 
 
-def read_gfs_data(
-    source: str | Path | list[str | Path],
-    pattern: str = "*.csv",
-) -> pd.DataFrame:
-    """Lê e concatena CSVs brutos exportados pelo GFS/GDEX."""
-    return read_csv_files(source, pattern=pattern)
-
-
-def find_temperature_column(df: pd.DataFrame) -> str:
-    """Identifica a coluna de temperatura de um resultado GFS."""
-    candidates = [
-        column
-        for column in df.columns
-        if any(term in column.lower() for term in ("temperature", "t max", "t min"))
-    ]
-    if not candidates:
-        raise ValueError(
-            "Coluna de temperatura não encontrada. "
-            f"Colunas disponíveis: {df.columns.tolist()}"
-        )
-    return candidates[-1]
-
-
-def process_gfs_temperature_data(
-    source: str | Path,
-    variable_name: str,
-    pattern: str = "*.csv",
-) -> pd.DataFrame:
-    """Converte o resultado de temperatura do GFS de Kelvin para Celsius."""
-    df = read_gfs_data(source, pattern=pattern)
-    temperature_column = find_temperature_column(df)
-    df[temperature_column] = pd.to_numeric(df[temperature_column], errors="coerce")
-    df["temperature_C"] = df[temperature_column] - 273.15
-    if {"Date", "Time"}.issubset(df.columns):
-        df["datetime"] = pd.to_datetime(
-            df["Date"].astype(str) + " " + df["Time"].astype(str),
-            errors="coerce",
-        )
-    df["variable"] = variable_name
-    return df
-
-
 def _column_types(header: list[str]) -> list[str]:
     """Classifica cada coluna do header como 'text', 'int' ou 'real'."""
     types = []
