@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 try:
-    from ..feature_engineering import read_csv_files, write_csv
+    from ..data_io import read_csv_files, write_csv
     from ..paths import ensure_data_directories
     from .gfs_config import (
         ALEGRETE_COORDINATES,
@@ -29,7 +29,7 @@ except ImportError:  # Permite executar este arquivo diretamente.
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from feature_engineering import read_csv_files, write_csv
+    from data_io import read_csv_files, write_csv
     from paths import ensure_data_directories
     from gfs_config import (
         ALEGRETE_COORDINATES,

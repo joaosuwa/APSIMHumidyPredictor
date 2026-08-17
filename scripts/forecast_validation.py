@@ -1,17 +1,34 @@
-"""Validacao das previsoes de chuva do GFS contra a NASA POWER."""
+"""Orquestra a validação das previsões de chuva do GFS contra a NASA POWER."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 try:
-    from .feature_engineering import read_csv_files, read_nasa_power_data, write_csv
+    from .data_io import write_csv
+    from .gfs_data_extractor.forecast import (
+        build_daily_forecast,
+        filter_future,
+        read_forecast,
+    )
+    from .metrics.forecast import (
+        compare_forecast,
+        detection_metrics as _detection_metrics,
+        error_metrics as _error_metrics,
+    )
+    from .nasa_power.processing import read_precipitation_series
     from .paths import PROCESSED_VALIDATION_DIR, RAW_GFS_DIR, RAW_NASA_POWER_DIR
 except ImportError:  # Permite executar este arquivo diretamente.
-    from feature_engineering import read_csv_files, read_nasa_power_data, write_csv
+    from data_io import write_csv
+    from gfs_data_extractor.forecast import build_daily_forecast, filter_future, read_forecast
+    from metrics.forecast import (
+        compare_forecast,
+        detection_metrics as _detection_metrics,
+        error_metrics as _error_metrics,
+    )
+    from nasa_power.processing import read_precipitation_series
     from paths import PROCESSED_VALIDATION_DIR, RAW_GFS_DIR, RAW_NASA_POWER_DIR
 
 
@@ -31,113 +48,9 @@ FORECAST_PAIRS = [
 DEFAULT_HORARIOS = ["00:00", "06:00", "12:00", "18:00"]
 
 
-def read_forecast(path: str | Path) -> pd.DataFrame:
-    """Le um CSV de previsao e devolve timestamp, data, hora e precipitacao."""
-    forecast = read_csv_files(path)
-    forecast.columns = ["Date", "Time", "precip"]
-    hour = pd.to_datetime(forecast["Time"], format="%H:%M").dt.hour
-    forecast["ts"] = pd.to_datetime(forecast["Date"]) + pd.to_timedelta(hour, unit="h")
-    forecast = forecast.sort_values("ts").reset_index(drop=True)
-    forecast["date"] = forecast["ts"].dt.date
-    forecast["hour"] = hour.astype(int)
-    return forecast[["ts", "date", "hour", "precip"]]
-
-
 def read_observed(path: str | Path) -> pd.Series:
-    """Le a precipitacao observada da NASA POWER; -999 vira NaN."""
-    observed = read_nasa_power_data(path)
-    return observed.set_index("date")["PRECTOTCORR"]
-
-
-def build_daily_forecast(forecast: pd.DataFrame, horario: str = "00:00") -> pd.Series:
-    """Relaciona a previsao de D ao registro de D+1 no horario escolhido."""
-    hour = int(pd.to_datetime(horario, format="%H:%M").hour)
-    daily = forecast.pivot_table(index="date", columns="hour", values="precip")
-    values = daily.get(hour).copy()
-    values.index = pd.to_datetime(values.index) - pd.Timedelta(days=1)
-    values.name = "previsao"
-    return values
-
-
-def filter_future(
-    daily_forecast: pd.Series,
-    reference_date: str | pd.Timestamp | None = None,
-    horizon_days: int | None = None,
-) -> pd.Series:
-    """Mantem apenas previsoes a partir da data de referencia."""
-    if reference_date is None:
-        return daily_forecast.copy()
-    start = pd.Timestamp(reference_date).normalize()
-    mask = daily_forecast.index >= start
-    if horizon_days is not None:
-        end = start + pd.Timedelta(days=horizon_days - 1)
-        mask &= daily_forecast.index <= end
-    return daily_forecast.loc[mask]
-
-
-def _detection_metrics(forecast: pd.Series, observed: pd.Series, threshold: float) -> dict:
-    hits = int(((forecast >= threshold) & (observed >= threshold)).sum())
-    misses = int(((forecast < threshold) & (observed >= threshold)).sum())
-    false_alarms = int(((forecast >= threshold) & (observed < threshold)).sum())
-    correct_neg = int(((forecast < threshold) & (observed < threshold)).sum())
-    pod = hits / (hits + misses) if hits + misses else np.nan
-    far = false_alarms / (hits + false_alarms) if hits + false_alarms else np.nan
-    csi = hits / (hits + misses + false_alarms) if hits + misses + false_alarms else np.nan
-    total = hits + misses + false_alarms + correct_neg
-    accuracy = (hits + correct_neg) / total if total else np.nan
-    return {
-        "limiar": threshold,
-        "hits": hits,
-        "misses": misses,
-        "false_alarms": false_alarms,
-        "correct_neg": correct_neg,
-        "pod": pod,
-        "far": far,
-        "csi": csi,
-        "acuracia": accuracy,
-    }
-
-
-def _error_metrics(forecast: pd.Series, observed: pd.Series) -> dict:
-    residual = forecast - observed
-    n = int(observed.size)
-    if n == 0:
-        return {"n": 0, "mae": np.nan, "rmse": np.nan, "vies": np.nan, "correlacao": np.nan}
-    correlation = float(np.corrcoef(forecast, observed)[0, 1]) if n > 2 else np.nan
-    return {
-        "n": n,
-        "mae": float(np.mean(np.abs(residual))),
-        "rmse": float(np.sqrt(np.mean(residual**2))),
-        "vies": float(np.mean(residual)),
-        "correlacao": correlation,
-    }
-
-
-def compare_forecast(
-    forecast: pd.Series,
-    observed: pd.Series,
-    threshold: float = 1.0,
-) -> pd.DataFrame:
-    """Calcula metricas de erro e deteccao gerais e por mes."""
-    merged = pd.DataFrame({"previsao": forecast, "observado": observed}).dropna().sort_index()
-    if merged.empty:
-        return pd.DataFrame()
-
-    rows = [{
-        "grupo": "geral",
-        "mes": np.nan,
-        **_error_metrics(merged["previsao"], merged["observado"]),
-        **_detection_metrics(merged["previsao"], merged["observado"], threshold),
-    }]
-    merged["mes"] = merged.index.month
-    for mes, group in merged.groupby("mes"):
-        rows.append({
-            "grupo": "por_mes",
-            "mes": int(mes),
-            **_error_metrics(group["previsao"], group["observado"]),
-            **_detection_metrics(group["previsao"], group["observado"], threshold),
-        })
-    return pd.DataFrame(rows)
+    """Alias compatível para a leitura da precipitação observada da NASA POWER."""
+    return read_precipitation_series(path)
 
 
 def compare_all(
@@ -147,7 +60,7 @@ def compare_all(
     horizon_days: int | None = None,
     output_dir: str | Path = PROCESSED_VALIDATION_DIR,
 ) -> dict[str, pd.DataFrame]:
-    """Le as fontes, calcula a validacao e salva os resultados em CSV."""
+    """Lê as fontes, calcula a validação e salva os resultados em CSV."""
     output_dir = Path(output_dir)
     series_frames = []
     metrics_frames = []

@@ -11,7 +11,7 @@ Os dados ficam separados em duas áreas:
 - `data/processed/validation`: resultados da validação das previsões;
 - `data/processed/model`: espaço reservado para o CSV central que será usado no treinamento do modelo.
 
-Os caminhos são definidos em `scripts/paths.py`. A leitura e a escrita de CSVs ficam centralizadas em `scripts/feature_engineering.py`, com funções específicas para APSIM, NASA POWER e GFS.
+Os caminhos são definidos em `scripts/paths.py`. As operações genéricas de CSV ficam em `scripts/data_io.py`. O processamento específico foi separado por fonte: APSIM NG em `scripts/apsim/processing.py`, NASA POWER em `scripts/nasa_power/processing.py`, GFS em `scripts/gfs_data_extractor/` (incluindo a agregação de forecasts em `scripts/gfs_data_extractor/forecast.py`) e métricas estatísticas em `scripts/metrics/forecast.py`.
 
 Para processar o Report do APSIM:
 
@@ -19,11 +19,15 @@ Para processar o Report do APSIM:
 python -m scripts.feature_engineering
 ```
 
+O módulo `scripts.feature_engineering` continua disponível como ponto de entrada compatível, enquanto as funções podem ser importadas diretamente de `scripts.apsim` e `scripts.nasa_power`.
+
 Para validar as previsões de chuva:
 
 ```bash
 python -m scripts.forecast_validation
 ```
+
+O arquivo de validação ficou responsável pela leitura das fontes e pela orquestração. As métricas são calculadas em `scripts.metrics.forecast`.
 
 Para baixar os produtos GFS, execute `python -m scripts.gfs_data_extractor.get_gfs_data`. Esse comando somente faz requisições e grava os downloads brutos em `data/raw/gfs/downloads`.
 
