@@ -18,7 +18,7 @@ try:
         END_DATE,
         LATITUDE,
         LONGITUDE,
-        PRODUCTS,
+        ALL_PRODUCTS,
         RAW_OUTPUT_DIR,
         START_DATE,
     )
@@ -26,7 +26,7 @@ try:
 except ImportError:  # Permite executar este arquivo diretamente.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from paths import ensure_data_directories
-    from gfs_config import DATASET, END_DATE, LATITUDE, LONGITUDE, PRODUCTS, RAW_OUTPUT_DIR, START_DATE
+    from gfs_config import ALL_PRODUCTS, DATASET, END_DATE, LATITUDE, LONGITUDE, RAW_OUTPUT_DIR, START_DATE
     import gdex_client as rc
 
 
@@ -94,7 +94,7 @@ def download_product(product_info: dict) -> Path:
         purge_request(request_id)
 
 
-def download_all_products(products: list[dict] = PRODUCTS) -> list[Path]:
+def download_all_products(products: list[dict] = ALL_PRODUCTS) -> list[Path]:
     """Baixa todos os produtos configurados, sem processar os CSVs."""
     return [download_product(product) for product in products]
 

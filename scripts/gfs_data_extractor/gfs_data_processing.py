@@ -10,14 +10,20 @@ try:
     from ..feature_engineering import read_csv_files, write_csv
     from ..paths import ensure_data_directories
     from .gfs_config import (
-        ALEGRETE_FILE_PATTERN,
+        ALEGRETE_COORDINATES,
         FINAL_COLUMNS,
         FINAL_OUTPUT_FILE,
         INTERVAL_END_HOURS,
-        NOVA_RAMADA_FILE_PATTERN,
+        LATITUDE,
+        LONGITUDE,
+        NOVA_RAMADA_COORDINATES,
         PRODUCTS,
         PROCESSED_OUTPUT_DIR,
+        RADIATION_FINAL_COLUMNS,
+        RADIATION_FINAL_OUTPUT_FILE,
+        RADIATION_PRODUCTS,
         RAW_OUTPUT_DIR,
+        coordinate_file_pattern,
     )
 except ImportError:  # Permite executar este arquivo diretamente.
     import sys
@@ -26,14 +32,20 @@ except ImportError:  # Permite executar este arquivo diretamente.
     from feature_engineering import read_csv_files, write_csv
     from paths import ensure_data_directories
     from gfs_config import (
-        ALEGRETE_FILE_PATTERN,
+        ALEGRETE_COORDINATES,
         FINAL_COLUMNS,
         FINAL_OUTPUT_FILE,
         INTERVAL_END_HOURS,
-        NOVA_RAMADA_FILE_PATTERN,
+        LATITUDE,
+        LONGITUDE,
+        NOVA_RAMADA_COORDINATES,
         PRODUCTS,
         PROCESSED_OUTPUT_DIR,
+        RADIATION_FINAL_COLUMNS,
+        RADIATION_FINAL_OUTPUT_FILE,
+        RADIATION_PRODUCTS,
         RAW_OUTPUT_DIR,
+        coordinate_file_pattern,
     )
 
 ensure_data_directories()
@@ -81,8 +93,158 @@ def process_gfs_temperature_data(
     return df
 
 
-def process_product(product_info: dict, file_pattern: str = "*.csv") -> pd.DataFrame:
+def find_radiation_column(df: pd.DataFrame) -> str:
+    """Identifica a coluna DSWRF do resultado GFS."""
+    candidates = [
+        column
+        for column in df.columns
+        if any(term in column.lower() for term in ("dswrf", "shortwave radiation", "radiation flux"))
+    ]
+    if not candidates:
+        raise ValueError(
+            "Coluna DSWRF não encontrada. "
+            f"Colunas disponíveis: {df.columns.tolist()}"
+        )
+    return candidates[-1]
+
+
+def process_gfs_radiation_data(
+    source: str | Path,
+    variable_name: str,
+    pattern: str = "*.csv",
+) -> pd.DataFrame:
+    """Lê DSWRF bruto em W/m² e cria ``datetime`` sem alterar a unidade."""
+    df = read_gfs_data(source, pattern=pattern)
+    radiation_column = find_radiation_column(df)
+    df["dswrf_W_m2"] = pd.to_numeric(df[radiation_column], errors="coerce")
+    if {"Date", "Time"}.issubset(df.columns):
+        df["datetime"] = pd.to_datetime(
+            df["Date"].astype(str) + " " + df["Time"].astype(str),
+            errors="coerce",
+        )
+    df["variable"] = variable_name
+    return df
+
+
+def process_radiation_product(
+    product_info: dict,
+    latitude: float = LATITUDE,
+    longitude: float = LONGITUDE,
+    file_pattern: str | None = None,
+) -> pd.DataFrame:
+    """Processa um produto DSWRF já baixado, sem fazer requisições externas."""
+    file_pattern = file_pattern or coordinate_file_pattern(latitude, longitude)
+    raw_dir = RAW_OUTPUT_DIR / product_info["name"]
+    return process_gfs_radiation_data(
+        raw_dir,
+        variable_name=product_info["name"],
+        pattern=file_pattern,
+    )
+
+
+def load_or_process_radiation_product(
+    product_info: dict,
+    latitude: float = LATITUDE,
+    longitude: float = LONGITUDE,
+    file_pattern: str | None = None,
+) -> pd.DataFrame:
+    """Carrega um produto DSWRF existente em ``data/raw/gfs/downloads``."""
+    file_pattern = file_pattern or coordinate_file_pattern(latitude, longitude)
+    raw_dir = RAW_OUTPUT_DIR / product_info["name"]
+    if not raw_dir.exists() or not list(raw_dir.rglob(file_pattern)):
+        raise FileNotFoundError(
+            f"Dados brutos de radiação não encontrados para {product_info['name']} em {raw_dir}. "
+            "Execute primeiro get_gfs_data.py."
+        )
+    return process_radiation_product(
+        product_info,
+        latitude=latitude,
+        longitude=longitude,
+        file_pattern=file_pattern,
+    )
+
+
+def build_daily_radiation_dataframe(
+    all_results: dict[str, pd.DataFrame],
+    products: list[dict] = RADIATION_PRODUCTS,
+) -> pd.DataFrame:
+    """Consolida médias de fluxo DSWRF de seis horas em energia diária."""
+    daily_df = None
+    radiation_columns = []
+
+    for product_info in products:
+        name = product_info["name"]
+        output_name = f"{name}_W_m2"
+        radiation_columns.append(output_name)
+        radiation = all_results[name][["datetime", "dswrf_W_m2"]].copy()
+        radiation["datetime"] = pd.to_datetime(radiation["datetime"], errors="coerce")
+        radiation["dswrf_W_m2"] = pd.to_numeric(radiation["dswrf_W_m2"], errors="coerce")
+        radiation = radiation.dropna(subset=["datetime"])
+        radiation = radiation[radiation["datetime"].dt.hour == INTERVAL_END_HOURS[name]]
+        radiation = radiation.sort_values("datetime").drop_duplicates("datetime")
+        radiation["date"] = radiation["datetime"].dt.normalize()
+
+        if name.endswith("18_24"):
+            radiation["date"] -= pd.Timedelta(days=1)
+
+        radiation = radiation.sort_values("date").drop_duplicates("date")
+        radiation = radiation[["date", "dswrf_W_m2"]].rename(
+            columns={"dswrf_W_m2": output_name}
+        )
+        daily_df = radiation if daily_df is None else daily_df.merge(
+            radiation,
+            on="date",
+            how="outer",
+        )
+
+    if daily_df is None:
+        raise RuntimeError("Nenhum dado de radiação foi consolidado.")
+
+    daily_df = daily_df.sort_values("date").reset_index(drop=True)
+    # Não exporta dias parciais: a radiação diária precisa dos quatro
+    # intervalos de seis horas.
+    daily_df = daily_df.dropna(subset=radiation_columns).reset_index(drop=True)
+    daily_df["DSWRF_24h_mean_W_m2"] = daily_df[radiation_columns].mean(axis=1)
+
+    # Cada coluna é uma média de fluxo ao longo de seis horas.
+    # W/m² × 6 h × 3.600 s/h ÷ 1.000.000 = MJ/m².
+    daily_df["DSWRF_24h_MJ_m2"] = daily_df[radiation_columns].sum(axis=1) * 0.0216
+
+    daily_df = daily_df.rename(columns={"date": "datetime"})
+    daily_df["datetime"] = daily_df["datetime"].dt.strftime("%Y-%m-%d")
+    return daily_df.reindex(columns=RADIATION_FINAL_COLUMNS)
+
+
+def generate_gfs_radiation_file(
+    output_file: str | Path = RADIATION_FINAL_OUTPUT_FILE,
+    latitude: float = LATITUDE,
+    longitude: float = LONGITUDE,
+    file_pattern: str | None = None,
+    products: list[dict] = RADIATION_PRODUCTS,
+) -> pd.DataFrame:
+    """Processa DSWRF bruto local e grava a série diária consolidada."""
+    all_results = {
+        product["name"]: load_or_process_radiation_product(
+            product,
+            latitude=latitude,
+            longitude=longitude,
+            file_pattern=file_pattern,
+        )
+        for product in products
+    }
+    final_df = build_daily_radiation_dataframe(all_results, products=products)
+    write_csv(final_df, output_file)
+    return final_df
+
+
+def process_product(
+    product_info: dict,
+    latitude: float = LATITUDE,
+    longitude: float = LONGITUDE,
+    file_pattern: str | None = None,
+) -> pd.DataFrame:
     """Processa um produto GFS já baixado, sem fazer requisições externas."""
+    file_pattern = file_pattern or coordinate_file_pattern(latitude, longitude)
     raw_dir = RAW_OUTPUT_DIR / product_info["name"]
     return process_gfs_temperature_data(
         raw_dir,
@@ -93,16 +255,24 @@ def process_product(product_info: dict, file_pattern: str = "*.csv") -> pd.DataF
 
 def load_or_process_product(
     product_info: dict,
-    file_pattern: str = "*.csv",
+    latitude: float = LATITUDE,
+    longitude: float = LONGITUDE,
+    file_pattern: str | None = None,
 ) -> pd.DataFrame:
     """Carrega e processa um produto existente em ``data/raw/gfs/downloads``."""
+    file_pattern = file_pattern or coordinate_file_pattern(latitude, longitude)
     raw_dir = RAW_OUTPUT_DIR / product_info["name"]
     if not raw_dir.exists() or not list(raw_dir.rglob(file_pattern)):
         raise FileNotFoundError(
             f"Dados brutos não encontrados para {product_info['name']} em {raw_dir}. "
             "Execute primeiro get_gfs_data.py."
         )
-    return process_product(product_info, file_pattern=file_pattern)
+    return process_product(
+        product_info,
+        latitude=latitude,
+        longitude=longitude,
+        file_pattern=file_pattern,
+    )
 
 
 def build_daily_temperature_dataframe(
@@ -142,12 +312,19 @@ def build_daily_temperature_dataframe(
 
 def generate_gfs_temperature_file(
     output_file: str | Path = FINAL_OUTPUT_FILE,
-    file_pattern: str = ALEGRETE_FILE_PATTERN,
+    latitude: float = LATITUDE,
+    longitude: float = LONGITUDE,
+    file_pattern: str | None = None,
     products: list[dict] = PRODUCTS,
 ) -> pd.DataFrame:
     """Processa downloads locais e grava a série diária consolidada."""
     all_results = {
-        product["name"]: load_or_process_product(product, file_pattern)
+        product["name"]: load_or_process_product(
+            product,
+            latitude=latitude,
+            longitude=longitude,
+            file_pattern=file_pattern,
+        )
         for product in products
     }
     final_df = build_daily_temperature_dataframe(all_results, products=products)
@@ -156,14 +333,38 @@ def generate_gfs_temperature_file(
 
 
 def main() -> pd.DataFrame:
-    return generate_gfs_temperature_file()
+    return generate_gfs_temperature_file(
+        latitude=ALEGRETE_COORDINATES[0],
+        longitude=ALEGRETE_COORDINATES[1],
+    )
 
 
 def main_nova_ramada() -> pd.DataFrame:
     output_file = PROCESSED_OUTPUT_DIR / "gfs_temperature_20190613_20260813_Nova_Ramada.csv"
     return generate_gfs_temperature_file(
         output_file=output_file,
-        file_pattern=NOVA_RAMADA_FILE_PATTERN,
+        latitude=NOVA_RAMADA_COORDINATES[0],
+        longitude=NOVA_RAMADA_COORDINATES[1],
+    )
+
+
+def main_radiation() -> pd.DataFrame:
+    """Gera a radiação diária de Alegrete a partir dos RAW DSWRF."""
+    output_file = PROCESSED_OUTPUT_DIR / "gfs_radiation_20190613_20260813_Alegrete.csv"
+    return generate_gfs_radiation_file(
+        output_file=output_file,
+        latitude=ALEGRETE_COORDINATES[0],
+        longitude=ALEGRETE_COORDINATES[1],
+    )
+
+
+def main_radiation_nova_ramada() -> pd.DataFrame:
+    """Gera a radiação diária de Nova Ramada a partir dos RAW DSWRF."""
+    output_file = PROCESSED_OUTPUT_DIR / "gfs_radiation_20190613_20260813_Nova_Ramada.csv"
+    return generate_gfs_radiation_file(
+        output_file=output_file,
+        latitude=NOVA_RAMADA_COORDINATES[0],
+        longitude=NOVA_RAMADA_COORDINATES[1],
     )
 
 
