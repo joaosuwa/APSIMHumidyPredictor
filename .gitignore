@@ -217,14 +217,10 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-
-# data
-data/*
-!data/raw/
-!data/raw/**/
-!data/raw/**/.gitkeep
-!data/processed/
-!data/processed/**/
-!data/processed/**/.gitkeep
-
+# Dados locais do projeto: não versionar RAW nem processados auxiliares.
+# Apenas data/processed/model pode ser enviado ao repositório.
+/data/raw/
+/data/processed/*
+!/data/processed/model/
+!/data/processed/model/**
 gdex_token.txt
