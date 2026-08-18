@@ -1,0 +1,14 @@
+{
+  "model": "xgboost",
+  "validation_mae": 3.763919500047233,
+  "best_iteration": 164,
+  "parameters": {
+    "learning_rate": 0.043858997631923864,
+    "max_depth": 4,
+    "min_child_weight": 9.24047792101859,
+    "subsample": 0.6585675562072028,
+    "colsample_bytree": 0.6026978474208552,
+    "reg_alpha": 0.01725152666543084,
+    "reg_lambda": 56.76037684830815
+  }
+}

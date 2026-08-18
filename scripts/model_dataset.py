@@ -24,6 +24,17 @@ DEFAULT_OUTPUT = MODEL_DATA_DIR / "training_dataset.csv"
 DOCUMENTATION = Path(__file__).resolve().parents[1] / "dataset_treinamento.md"
 GROUP_COLS = ["SimulationName", "cycle_id"]
 TARGET_COLUMN = "deficit_agua_proximo_dia_mm"
+VARIATION_TARGET_COLUMN = "variacao_deficit_proximo_dia_mm"
+
+METADATA_COLUMNS = [
+    "data",
+    "data_alvo",
+    "simulation_name",
+    "cycle_id",
+    "ano_semeadura",
+    "local",
+    "cenario_irrigado",
+]
 
 MAIZE_LOCATION = {
     "Alegrete": "Alegrete",
@@ -68,7 +79,8 @@ FEATURE_COLUMNS = [
     "taw_mm",
     "dias_desde_semeadura",
 ]
-FINAL_MODEL_COLUMNS = FEATURE_COLUMNS + [TARGET_COLUMN]
+TARGET_COLUMNS = [TARGET_COLUMN, VARIATION_TARGET_COLUMN]
+FINAL_MODEL_COLUMNS = METADATA_COLUMNS + FEATURE_COLUMNS + TARGET_COLUMNS
 
 
 def _load_nasa(location: str) -> pd.DataFrame:
@@ -148,6 +160,18 @@ def validate_dataset_schema(
         raise ValueError(f"Colunas não documentadas em {documentation_path}: {undocumented}")
 
 
+def add_next_day_targets(df: pd.DataFrame) -> pd.DataFrame:
+    """Adiciona os alvos de D+1 sem atravessar cenários, ciclos ou lacunas."""
+    result = df.copy()
+    grouped = result.groupby(GROUP_COLS, sort=False)
+    result["data_alvo"] = grouped["Clock.Today"].shift(-1)
+    result[TARGET_COLUMN] = grouped["Dr_root"].shift(-1)
+    consecutive = result["data_alvo"] == result["Clock.Today"] + pd.Timedelta(days=1)
+    result.loc[~consecutive, ["data_alvo", TARGET_COLUMN]] = pd.NA
+    result[VARIATION_TARGET_COLUMN] = result[TARGET_COLUMN] - result["Dr_root"]
+    return result
+
+
 def build_training_dataset(
     report_path: str | Path = DEFAULT_REPORT,
     output_path: str | Path = DEFAULT_OUTPUT,
@@ -159,7 +183,13 @@ def build_training_dataset(
     apsim["local"] = apsim["SimulationName"].map(MAIZE_LOCATION)
     if apsim["local"].isna().any():
         raise ValueError("Existe simulação APSIM sem mapeamento para Alegrete/Nova Ramada")
-    apsim[TARGET_COLUMN] = apsim.groupby(GROUP_COLS, sort=False)["Dr_root"].shift(-1)
+    apsim = add_next_day_targets(apsim)
+    apsim["ano_semeadura"] = apsim["Maize.SowingDate"].dt.year.astype("Int64")
+    apsim["cenario_irrigado"] = apsim["SimulationName"].str.contains(
+        "Irrigation",
+        case=False,
+        regex=False,
+    )
 
     climate_frames = []
     forecast_frames = []
@@ -211,6 +241,8 @@ def build_training_dataset(
             "Soil.SoilWater.Drainage": "drenagem_mm",
             "TAW_root": "taw_mm",
             "Maize.DaysAfterSowing": "dias_desde_semeadura",
+            "date": "data",
+            "SimulationName": "simulation_name",
         }
     )
     final = df[FINAL_MODEL_COLUMNS].dropna().reset_index(drop=True)
@@ -224,7 +256,7 @@ def main() -> pd.DataFrame:
     print(f"dataset salvo em: {DEFAULT_OUTPUT}")
     print(f"linhas: {len(result)}")
     print(f"colunas: {len(result.columns)}")
-    print(f"target: {TARGET_COLUMN}")
+    print(f"target do modelo: {VARIATION_TARGET_COLUMN}")
     return result
 
 

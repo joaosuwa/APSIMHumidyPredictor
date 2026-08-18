@@ -1,0 +1,22 @@
+Treinamento do previsor de déficit hídrico
+==========================================
+
+Target: variacao_deficit_proximo_dia_mm
+Modelo selecionado pela validação: lightgbm
+Critério de seleção: menor MAE geral da variação nos ciclos de 2024
+
+Cortes temporais:
+       split  rows  sowing_year_min  sowing_year_max   date_min   date_max  irrigated_rows  future_irrigation_events
+tuning_train  2700             2019             2023 2019-08-13 2024-01-06               0                         0
+  validation  1285             2024             2024 2024-01-13 2025-01-10             564                        44
+ final_train  3985             2019             2024 2019-08-13 2025-01-10             564                        44
+        test  1208             2025             2025 2025-08-04 2026-01-15             594                        52
+
+Métricas no teste temporal (safra 2025):
+      model  selected_by_validation  validation_mae_variation  mae_variation  rmse_variation  r2_variation  bias_variation  mae_next_deficit  rmse_next_deficit  r2_next_deficit  bias_next_deficit
+   catboost                   False                  3.455111       3.447764        6.333494      0.449201        1.756737          3.447764           6.333494         0.988347           1.756737
+    xgboost                   False                  3.763920       3.520193        5.834202      0.532621        0.434329          3.520193           5.834202         0.990112           0.434329
+   lightgbm                    True                  3.434090       3.737069        6.748698      0.374617        1.735532          3.737069           6.748698         0.986769           1.735532
+persistence                   False                       NaN       6.497004        8.554338     -0.004799       -0.591163          6.497004           8.554338         0.978741          -0.591163
+
+A baseline persistence prevê variação zero: Dr(D+1) = Dr(D).

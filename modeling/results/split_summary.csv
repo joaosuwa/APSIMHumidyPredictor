@@ -1,0 +1,5 @@
+split,rows,sowing_year_min,sowing_year_max,date_min,date_max,irrigated_rows,future_irrigation_events
+tuning_train,2700,2019,2023,2019-08-13,2024-01-06,0,0
+validation,1285,2024,2024,2024-01-13,2025-01-10,564,44
+final_train,3985,2019,2024,2019-08-13,2025-01-10,564,44
+test,1208,2025,2025,2025-08-04,2026-01-15,594,52

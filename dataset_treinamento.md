@@ -3,7 +3,9 @@
 Arquivo gerado: `data/processed/model/training_dataset.csv`.
 
 Cada linha representa o dia `D` de um cenário e ciclo de cultivo de milho. O
-target é o déficit de água no dia seguinte (`D+1`), no mesmo cenário e ciclo.
+target usado na modelagem é a variação do déficit no dia seguinte (`D+1`), no
+mesmo cenário e ciclo. O déficit absoluto de `D+1` também é mantido para
+reconstrução e avaliação das previsões.
 A última linha de cada ciclo não entra no arquivo porque não possui observação
 de `D+1`. Linhas com alguma variável necessária ausente também são removidas.
 
@@ -45,6 +47,22 @@ dataset não possui coluna de ETo histórico nem de ETo previsto.
 | `taw_mm` | APSIM NG + cálculo próprio | Água total disponível na zona radicular: soma de `DUL - LL` nas camadas radiculares. |
 | `dias_desde_semeadura` | APSIM NG | `Maize.DaysAfterSowing`. |
 | `deficit_agua_proximo_dia_mm` | APSIM NG | **Target**: `dr_mm` de `D+1`, obtido com `shift(-1)` agrupado por cenário e ciclo de cultivo. |
+| `variacao_deficit_proximo_dia_mm` | APSIM NG + cálculo próprio | **Target do modelo**: `deficit_agua_proximo_dia_mm - dr_mm`. |
+
+## Metadados para divisão e auditoria
+
+Os campos abaixo são mantidos no CSV, mas não são entregues aos modelos como
+features:
+
+| Coluna | Uso |
+| :--- | :--- |
+| `data` | Data das features no dia `D`. |
+| `data_alvo` | Data do target em `D+1`; deve ser exatamente um dia após `data`. |
+| `simulation_name` | Identifica o cenário APSIM. |
+| `cycle_id` | Identifica o ciclo dentro de cada cenário. |
+| `ano_semeadura` | Define os cortes temporais de treino, validação e teste. |
+| `local` | Localidade associada ao cenário (`Alegrete` ou `NovaRamada`). |
+| `cenario_irrigado` | Indica se a simulação contém manejo de irrigação programada. |
 
 ## Locais e alinhamento temporal
 

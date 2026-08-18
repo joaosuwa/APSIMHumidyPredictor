@@ -1,0 +1,46 @@
+{
+  "selected_model": "lightgbm",
+  "models": {
+    "xgboost": {
+      "model": "xgboost",
+      "validation_mae": 3.763919500047233,
+      "best_iteration": 164,
+      "parameters": {
+        "learning_rate": 0.043858997631923864,
+        "max_depth": 4,
+        "min_child_weight": 9.24047792101859,
+        "subsample": 0.6585675562072028,
+        "colsample_bytree": 0.6026978474208552,
+        "reg_alpha": 0.01725152666543084,
+        "reg_lambda": 56.76037684830815
+      }
+    },
+    "lightgbm": {
+      "model": "lightgbm",
+      "validation_mae": 3.434090477655831,
+      "best_iteration": 458,
+      "parameters": {
+        "learning_rate": 0.03317507997665128,
+        "num_leaves": 216,
+        "max_depth": 12,
+        "min_child_samples": 76,
+        "subsample": 0.8012364486139857,
+        "colsample_bytree": 0.7097725222170376,
+        "reg_alpha": 0.004566618196770474,
+        "reg_lambda": 0.03423771814440197
+      }
+    },
+    "catboost": {
+      "model": "catboost",
+      "validation_mae": 3.455111138199018,
+      "best_iteration": 284,
+      "parameters": {
+        "learning_rate": 0.03329794432268528,
+        "depth": 5,
+        "l2_leaf_reg": 1.7929684261080214,
+        "random_strength": 3.082226330410156,
+        "bagging_temperature": 0.8799788131912589
+      }
+    }
+  }
+}
