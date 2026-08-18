@@ -167,7 +167,7 @@ def _root_fractions(
     return np.clip((root_depth - tops[None, :]) / thickness[None, :], 0.0, 1.0)
 
 
-def add_apsim_features(df: pd.DataFrame, include_relative: bool = True) -> pd.DataFrame:
+def add_apsim_features(df: pd.DataFrame) -> pd.DataFrame:
     """Adiciona features calculadas exclusivamente com dados do APSIM NG."""
     df = df.copy()
     tops, bottoms = _layer_bounds(df)
@@ -197,10 +197,12 @@ def add_apsim_features(df: pd.DataFrame, include_relative: bool = True) -> pd.Da
         df["Weather.Rain"].fillna(0.0)
         + df["Irrigation.IrrigationApplied"].fillna(0.0)
     )
-    df["Chuva_Irrigacao_passada_3d"] = (
-        water_input.groupby([df[column] for column in GROUP_COLS], sort=False)
-        .transform(lambda values: values.shift(1).rolling(3, min_periods=1).sum())
+    water_group = water_input.groupby(
+        [df[column] for column in GROUP_COLS],
+        sort=False,
     )
+    for days in range(1, 4):
+        df[f"Chuva_Irrigacao_passada_{days}d"] = water_group.shift(days)
 
     doy = df["Clock.Today"].dt.dayofyear.to_numpy(float)
     month = df["Clock.Today"].dt.month.to_numpy(float)
@@ -208,10 +210,6 @@ def add_apsim_features(df: pd.DataFrame, include_relative: bool = True) -> pd.Da
     df["DOY_cos"] = np.cos(2.0 * np.pi * doy / 365.0)
     df["Month_sin"] = np.sin(2.0 * np.pi * month / 12.0)
     df["Month_cos"] = np.cos(2.0 * np.pi * month / 12.0)
-
-    if include_relative:
-        df["SW_frac_TAW"] = df["SoilWater_root"] / df["TAW_root"]
-        df["Dr_frac_TAW"] = df["Dr_root"] / df["TAW_root"]
 
     return df
 
@@ -224,7 +222,6 @@ def drop_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
 def build_report_features(
     report_path: str | Path = DEFAULT_REPORT,
     output_path: str | Path = DEFAULT_OUTPUT,
-    include_relative: bool = True,
     columns_to_drop: list[str] | None = None,
 ) -> pd.DataFrame:
     """Lê, enriquece, reduz e salva o relatório do APSIM NG.
@@ -235,9 +232,10 @@ def build_report_features(
     """
     df = read_apsim_report(report_path)
     df = filter_to_crop_window(df)
-    df = add_apsim_features(df, include_relative=include_relative)
+    df = add_apsim_features(df)
     columns = DEFAULT_COLUMNS_TO_DROP if columns_to_drop is None else columns_to_drop
     if columns:
         df = drop_columns(df, columns)
+    df = df.dropna().reset_index(drop=True)
     write_csv(df, output_path)
     return df

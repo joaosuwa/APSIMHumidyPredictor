@@ -40,7 +40,6 @@ except ImportError:  # Permite executar este arquivo diretamente.
 def main(
     report_path=DEFAULT_REPORT,
     output_path=DEFAULT_OUTPUT,
-    include_relative: bool = True,
     columns_to_drop: list[str] | None = None,
 ):
     """Executa o processamento padrão do relatório do APSIM NG."""
@@ -48,7 +47,6 @@ def main(
     result = build_report_features(
         report_path=report_path,
         output_path=output_path,
-        include_relative=include_relative,
         columns_to_drop=columns_to_drop,
     )
     print(f"linhas no arquivo original: {len(full)}")
