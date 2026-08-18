@@ -9,6 +9,7 @@ from __future__ import annotations
 
 try:
     from .apsim.processing import (
+        DEFAULT_COLUMNS_TO_DROP,
         DEFAULT_MODEL_DATASET,
         DEFAULT_OUTPUT,
         DEFAULT_REPORT,
@@ -22,6 +23,7 @@ try:
     from .nasa_power.processing import process_nasa_power_data, read_nasa_power_data
 except ImportError:  # Permite executar este arquivo diretamente.
     from apsim.processing import (
+        DEFAULT_COLUMNS_TO_DROP,
         DEFAULT_MODEL_DATASET,
         DEFAULT_OUTPUT,
         DEFAULT_REPORT,
@@ -52,7 +54,8 @@ def main(
     print(f"linhas no arquivo original: {len(full)}")
     print(f"linhas na janela de cultivo: {len(result)}")
     print(f"simulacoes: {sorted(result['SimulationName'].unique())}")
-    print(f"ciclos (semeadura->colheita): {int(result['cycle_id'].nunique())}")
+    if "cycle_id" in result.columns:
+        print(f"ciclos (semeadura->colheita): {int(result['cycle_id'].nunique())}")
     print(f"colunas novas: {sorted(set(result.columns) - set(full.columns))}")
     print(result[["SoilWater_root", "Dr_root", "TAW_root", "ETreal"]].describe())
     return result

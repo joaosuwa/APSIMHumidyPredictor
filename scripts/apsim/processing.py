@@ -49,6 +49,25 @@ LAYER_COLS = {
 
 GROUP_COLS = ["SimulationName", "cycle_id"]
 
+DEFAULT_COLUMNS_TO_DROP = [
+    "SimulationID",
+    "CheckpointID",
+    "CheckpointName",
+    *LAYER_COLS["deficit"],
+    *LAYER_COLS["DUL"],
+    *LAYER_COLS["LL"],
+    "Maize.IsReadyForHarvesting",
+    "Maize.SowingDate",
+    *[f"SATreal({i})" for i in range(1, N_LAYERS + 1)],
+    *LAYER_COLS["depth"],
+    "Maize.Leaf.Transpiration",
+    "Soil.SoilWater.Es",
+    *LAYER_COLS["SW"],
+    "Yield",
+    "Zone",
+    "cycle_id",
+]
+
 
 def _column_types(header: list[str]) -> list[str]:
     """Classifica cada coluna do header como texto, inteiro ou real."""
@@ -170,9 +189,18 @@ def add_apsim_features(df: pd.DataFrame, include_relative: bool = True) -> pd.Da
     df["Irrigacao_dia_posterior"] = df.groupby(GROUP_COLS, sort=False)[
         "Irrigation.IrrigationApplied"
     ].shift(-1)
-    df["Umidade_solo_passada_1d"] = df.groupby(GROUP_COLS, sort=False)[
-        "SoilWater_root"
-    ].shift(1)
+    soil_group = df.groupby(GROUP_COLS, sort=False)["SoilWater_root"]
+    for days in range(1, 4):
+        df[f"Umidade_solo_passada_{days}d"] = soil_group.shift(days)
+
+    water_input = (
+        df["Weather.Rain"].fillna(0.0)
+        + df["Irrigation.IrrigationApplied"].fillna(0.0)
+    )
+    df["Chuva_Irrigacao_passada_3d"] = (
+        water_input.groupby([df[column] for column in GROUP_COLS], sort=False)
+        .transform(lambda values: values.shift(1).rolling(3, min_periods=1).sum())
+    )
 
     doy = df["Clock.Today"].dt.dayofyear.to_numpy(float)
     month = df["Clock.Today"].dt.month.to_numpy(float)
@@ -199,11 +227,17 @@ def build_report_features(
     include_relative: bool = True,
     columns_to_drop: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Lê, filtra, enriquece e salva o relatório do APSIM NG."""
+    """Lê, enriquece, reduz e salva o relatório do APSIM NG.
+
+    Por padrão, remove as colunas brutas e de identificação que não serão
+    utilizadas pelo modelo. Para manter todas as colunas, passe
+    ``columns_to_drop=[]``. Uma lista própria substitui a lista padrão.
+    """
     df = read_apsim_report(report_path)
     df = filter_to_crop_window(df)
     df = add_apsim_features(df, include_relative=include_relative)
-    if columns_to_drop:
-        df = drop_columns(df, columns_to_drop)
+    columns = DEFAULT_COLUMNS_TO_DROP if columns_to_drop is None else columns_to_drop
+    if columns:
+        df = drop_columns(df, columns)
     write_csv(df, output_path)
     return df
