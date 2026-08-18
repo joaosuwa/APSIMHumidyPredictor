@@ -46,10 +46,10 @@ Construir um modelo de aprendizado de máquina que utilize dados provenientes de
 | Precipitação observada | Meteorológica | Principal entrada de água | INMET |
 | Irrigação aplicada no dia | Manejo | Fundamental para o modelo entender o efeito da irrigação | APSIM NG |
 | Irrigação aplicada no dia posterior | Manejo | Fundamental para o modelo entender o efeito da irrigação | APSIM NG |
-| ET0 | Meteorológica derivada | Representa a demanda atmosférica | APSIM NG |
+| ET0 | Meteorológica derivada | Será calculada em etapa posterior; não está no CSV atual | Etapa posterior |
 | ETreal | Meteorológica derivada | Quanto de água foi consumido solo + planta (Transpiração + evaporação) | APSIM NG |
 | Previsão de chuva | Meteorológica | - | [NCAR GDEX](https://gdex.ucar.edu/datasets/d084001/) |
-| Previsão de ET0 | Meteorológica derivada | Informação complicada de se obter | [NCAR GDEX](https://gdex.ucar.edu/datasets/d084001/) |
+| Previsão de ET0 | Meteorológica derivada | Será calculada em etapa posterior; não está no CSV atual | Etapa posterior |
 | Temperatura média | Meteorológica | Influencia evapotranspiração | INMET |
 | Temperatura máxima/mínima | Meteorológica | Pode representar melhor extremos térmicos | INMET |
 | Umidade relativa | Meteorológica | Importante para a demanda evaporativa | INMET |
@@ -66,6 +66,11 @@ Construir um modelo de aprendizado de máquina que utilize dados provenientes de
 | Água Total Disponível no Solo (TAW) | Solo | Capacidade TOTAL de água disponível no solo | APSINM NG | 
 | Dias desde semeadura | Planta | - | APSINM NG |
 
+Para o milho, o GDD usa `Tbase = 8 °C` e `Tupper = 30 °C`. As temperaturas
+mínima e máxima são limitadas a esses valores antes da média diária (método 2
+do AquaCrop/FAO). A referência é o manual oficial da FAO/AquaCrop:
+<https://www.fao.org/fileadmin/user_upload/faowater/docs/Annexes.pdf>.
+
 
 ## Como serão obtidos os dados:
 
@@ -81,7 +86,8 @@ ETreal = [Soil].SoilWater.Es (Evaporação do solo) + [Plant].Leaf.Transpiration
 
 Depleção de água no solo (Dr) = DUL - SW de todas as camadas até zona radicular (Cálculo já feito no simulador)
 
-ET0 = Fórmula Priestley-Taylor
+ET0 = Fórmula Priestley-Taylor (cálculo reservado para etapa posterior; não
+entra no dataset atual)
 
 Dia do ano =
 $$DOY_{\sin} = \sin\left(2\pi \frac{DOY}{365}\right)$$
@@ -101,7 +107,8 @@ OBS: INMET contém dados nulos (ausentes). NASA-POWER contém todos os dados no 
 
 ### GFS Archive (Dados disponíveis desde 13/06/2019):
 
-Previsão de chuva, Previsão de ET0
+Previsão de chuva, temperatura máxima e mínima previstas e radiação prevista.
+O cálculo de ETo foi deixado para uma etapa posterior.
 
 ## Fonte dos dados coletados:
 
@@ -110,3 +117,18 @@ Chuva acumulada futura (24h), temperatura futura (0h-6h,6h-12h,12h-18h,18h,24h) 
 
 ### NASA POWER:
 Dados históricos de clima
+
+## Dataset final de treinamento
+
+O comando abaixo gera `data/processed/model/training_dataset.csv`:
+
+```bash
+python -m scripts.model_dataset
+```
+
+Cada linha contém as variáveis disponíveis no dia `D`. O alvo é
+`deficit_agua_proximo_dia_mm`, calculado como `Dr_root` do dia `D+1` no mesmo
+cenário e ciclo de cultivo. A última linha de cada ciclo é removida porque não
+tem observação do dia seguinte. As previsões de chuva, temperatura e radiação
+são as previsões disponíveis em `D` para `D+1`. O detalhamento completo está em
+[`dataset_treinamento.md`](dataset_treinamento.md).

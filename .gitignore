@@ -224,3 +224,5 @@ __marimo__/
 !/data/processed/model/
 !/data/processed/model/**
 gdex_token.txt
+
+/plans/*

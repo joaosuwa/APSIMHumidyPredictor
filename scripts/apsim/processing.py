@@ -24,6 +24,11 @@ DEFAULT_MODEL_DATASET = MODEL_DATA_DIR / "training_dataset.csv"
 
 N_LAYERS = 7
 
+# Parâmetros de milho usados pelo AquaCrop/FAO para o cálculo de tempo térmico.
+# O método 2 da FAO limita Tmin e Tmax antes de calcular a média diária.
+MAIZE_TBASE_C = 8.0
+MAIZE_TUPPER_C = 30.0
+
 TEXT_COLUMNS = {
     "SimulationName",
     "CheckpointName",
@@ -167,6 +172,24 @@ def _root_fractions(
     return np.clip((root_depth - tops[None, :]) / thickness[None, :], 0.0, 1.0)
 
 
+def maize_gdd_daily(
+    tmax: pd.Series | np.ndarray,
+    tmin: pd.Series | np.ndarray,
+    tbase_c: float = MAIZE_TBASE_C,
+    tupper_c: float = MAIZE_TUPPER_C,
+) -> pd.Series:
+    """Calcula GDD diário de milho pelo método 2 do AquaCrop/FAO.
+
+    As temperaturas máxima e mínima são limitadas a ``[Tbase, Tupper]``
+    antes da média. Assim, dias frios não acumulam graus-dia e temperaturas
+    acima do limiar superior não aceleram o desenvolvimento.
+    """
+    tmax_values = np.clip(np.asarray(tmax, dtype=float), tbase_c, tupper_c)
+    tmin_values = np.clip(np.asarray(tmin, dtype=float), tbase_c, tupper_c)
+    daily = np.maximum((tmax_values + tmin_values) / 2.0 - tbase_c, 0.0)
+    return pd.Series(daily, index=getattr(tmax, "index", None), name="GDD_dia")
+
+
 def add_apsim_features(df: pd.DataFrame) -> pd.DataFrame:
     """Adiciona features calculadas exclusivamente com dados do APSIM NG."""
     df = df.copy()
@@ -186,6 +209,11 @@ def add_apsim_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df["ETreal"] = df["Soil.SoilWater.Es"] + df["Maize.Leaf.Transpiration"]
     df["ETr_acumulado"] = df.groupby(GROUP_COLS, sort=False)["ETreal"].cumsum()
+
+    # Milho: GDD acumulado desde a semeadura, reiniciado a cada ciclo e
+    # cenário. O alvo do dataset é calculado depois deste passo.
+    df["GDD_dia"] = maize_gdd_daily(df["Weather.MaxT"], df["Weather.MinT"])
+    df["GDD_acumulado"] = df.groupby(GROUP_COLS, sort=False)["GDD_dia"].cumsum()
     df["Irrigacao_dia_posterior"] = df.groupby(GROUP_COLS, sort=False)[
         "Irrigation.IrrigationApplied"
     ].shift(-1)
