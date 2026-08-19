@@ -22,25 +22,38 @@ END_DATE = "202608011200"
 RAW_OUTPUT_DIR = RAW_GFS_DIR / "downloads"
 PROCESSED_OUTPUT_DIR = PROCESSED_GFS_DIR
 
+LEVEL_2M = {"type": "HTGL", "value": "2"}
+LEVEL_10M = {"type": "HTGL", "value": "10"}
+
 PRODUCTS = [
-    {"name": "Tmax_0_6", "param": "T MAX", "product": "6-hour Maximum (initial+0 to initial+6)"},
-    {"name": "Tmax_6_12", "param": "T MAX", "product": "6-hour Maximum (initial+6 to initial+12)"},
-    {"name": "Tmax_12_18", "param": "T MAX", "product": "6-hour Maximum (initial+12 to initial+18)"},
-    {"name": "Tmax_18_24", "param": "T MAX", "product": "6-hour Maximum (initial+18 to initial+24)"},
-    {"name": "Tmin_0_6", "param": "T MIN", "product": "6-hour Minimum (initial+0 to initial+6)"},
-    {"name": "Tmin_6_12", "param": "T MIN", "product": "6-hour Minimum (initial+6 to initial+12)"},
-    {"name": "Tmin_12_18", "param": "T MIN", "product": "6-hour Minimum (initial+12 to initial+18)"},
-    {"name": "Tmin_18_24", "param": "T MIN", "product": "6-hour Minimum (initial+18 to initial+24)"},
+    {"name": "Tmax_0_6", "param": "T MAX", "product": "6-hour Maximum (initial+0 to initial+6)", "level": LEVEL_2M},
+    {"name": "Tmax_6_12", "param": "T MAX", "product": "6-hour Maximum (initial+6 to initial+12)", "level": LEVEL_2M},
+    {"name": "Tmax_12_18", "param": "T MAX", "product": "6-hour Maximum (initial+12 to initial+18)", "level": LEVEL_2M},
+    {"name": "Tmax_18_24", "param": "T MAX", "product": "6-hour Maximum (initial+18 to initial+24)", "level": LEVEL_2M},
+    {"name": "Tmin_0_6", "param": "T MIN", "product": "6-hour Minimum (initial+0 to initial+6)", "level": LEVEL_2M},
+    {"name": "Tmin_6_12", "param": "T MIN", "product": "6-hour Minimum (initial+6 to initial+12)", "level": LEVEL_2M},
+    {"name": "Tmin_12_18", "param": "T MIN", "product": "6-hour Minimum (initial+12 to initial+18)", "level": LEVEL_2M},
+    {"name": "Tmin_18_24", "param": "T MIN", "product": "6-hour Minimum (initial+18 to initial+24)", "level": LEVEL_2M},
 ]
 
 RADIATION_PRODUCTS = [
-    {"name": "DSWRF_0_6", "param": "DSWRF", "product": "6-hour Average (initial+0 to initial+6)"},
-    {"name": "DSWRF_6_12", "param": "DSWRF", "product": "6-hour Average (initial+6 to initial+12)"},
-    {"name": "DSWRF_12_18", "param": "DSWRF", "product": "6-hour Average (initial+12 to initial+18)"},
-    {"name": "DSWRF_18_24", "param": "DSWRF", "product": "6-hour Average (initial+18 to initial+24)"},
+    {"name": "DSWRF_0_6", "param": "DSWRF", "product": "6-hour Average (initial+0 to initial+6)", "level": LEVEL_2M},
+    {"name": "DSWRF_6_12", "param": "DSWRF", "product": "6-hour Average (initial+6 to initial+12)", "level": LEVEL_2M},
+    {"name": "DSWRF_12_18", "param": "DSWRF", "product": "6-hour Average (initial+12 to initial+18)", "level": LEVEL_2M},
+    {"name": "DSWRF_18_24", "param": "DSWRF", "product": "6-hour Average (initial+18 to initial+24)", "level": LEVEL_2M},
 ]
 
-ALL_PRODUCTS = PRODUCTS + RADIATION_PRODUCTS
+WIND_PRODUCTS = [
+    {"name": "U GRD_24", "param": "U GRD", "product": "24-hour Forecast", "level": LEVEL_10M},
+    {"name": "V GRD_24", "param": "V GRD", "product": "24-hour Forecast", "level": LEVEL_10M},
+]
+
+HUMIDITY_PRODUCTS = [
+    {"name": "R H_24", "param": "R H", "product": "24-hour Forecast", "level": LEVEL_2M},
+    {"name": "DPT_24", "param": "DPT", "product": "24-hour Forecast", "level": LEVEL_2M},
+]
+
+ALL_PRODUCTS = PRODUCTS + RADIATION_PRODUCTS + WIND_PRODUCTS + HUMIDITY_PRODUCTS
 
 INTERVAL_END_HOURS = {
     product["name"]: hour

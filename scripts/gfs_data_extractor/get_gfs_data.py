@@ -6,9 +6,11 @@ responsabilidade de ``gfs_data_processing.py``.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 try:
@@ -19,6 +21,7 @@ try:
         LATITUDE,
         LONGITUDE,
         ALL_PRODUCTS,
+        LEVEL_2M,
         RAW_OUTPUT_DIR,
         START_DATE,
     )
@@ -26,21 +29,47 @@ try:
 except ImportError:  # Permite executar este arquivo diretamente.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from paths import ensure_data_directories
-    from gfs_config import ALL_PRODUCTS, DATASET, END_DATE, LATITUDE, LONGITUDE, RAW_OUTPUT_DIR, START_DATE
+    from gfs_config import ALL_PRODUCTS, DATASET, END_DATE, LATITUDE, LEVEL_2M, LONGITUDE, RAW_OUTPUT_DIR, START_DATE
     import gdex_client as rc
 
 
 ensure_data_directories()
 
 
-def submit_request(param: str, product: str) -> str:
-    """Submete uma consulta pontual ao GDEX."""
+def format_level(level: str | Mapping[str, object] | None) -> str | None:
+    """Converte um nível estruturado para o formato aceito pelo GDEX."""
+    if level is None:
+        return None
+    if isinstance(level, str):
+        if not level.strip() or ":" not in level:
+            raise ValueError("O nível textual deve estar no formato 'TIPO:VALOR'.")
+        level_type, level_value = level.split(":", maxsplit=1)
+    elif isinstance(level, Mapping):
+        level_type = level["type"] if "type" in level else level.get("level")
+        level_value = level["value"] if "value" in level else level.get("level_value")
+    else:
+        raise TypeError("level deve ser string, mapping ou None.")
+
+    if level_type is None or level_value is None:
+        raise ValueError("O nível deve informar tipo e valor.")
+    level_type = str(level_type).strip()
+    level_value = str(level_value).strip()
+    if not level_type or not level_value:
+        raise ValueError("O nível deve informar tipo e valor não vazios.")
+    return f"{level_type}:{level_value}"
+
+
+def build_control(
+    param: str,
+    product: str,
+    level: str | Mapping[str, object] | None = LEVEL_2M,
+) -> dict:
+    """Monta o payload de uma consulta sem executar a chamada de rede."""
     control = {
         "dataset": DATASET,
         "date": f"{START_DATE}/to/{END_DATE}",
         "datetype": "init",
         "param": param,
-        "level": "HTGL:2",
         "product": product,
         "oformat": "csv",
         "nlat": LATITUDE,
@@ -48,6 +77,19 @@ def submit_request(param: str, product: str) -> str:
         "wlon": LONGITUDE,
         "elon": LONGITUDE,
     }
+    formatted_level = format_level(level)
+    if formatted_level is not None:
+        control["level"] = formatted_level
+    return control
+
+
+def submit_request(
+    param: str,
+    product: str,
+    level: str | Mapping[str, object] | None = LEVEL_2M,
+) -> str:
+    """Submete uma consulta pontual ao GDEX."""
+    control = build_control(param, product, level)
     print(json.dumps(control, indent=4))
     response = rc.submit_json(control)
     if response.get("http_response") != 200:
@@ -85,7 +127,11 @@ def purge_request(request_id: str):
 def download_product(product_info: dict) -> Path:
     """Baixa um produto GFS e devolve o diretório dos arquivos brutos."""
     output_dir = RAW_OUTPUT_DIR / product_info["name"]
-    request_id = submit_request(product_info["param"], product_info["product"])
+    request_id = submit_request(
+        product_info["param"],
+        product_info["product"],
+        product_info.get("level", LEVEL_2M),
+    )
     try:
         wait_for_request(request_id)
         download_request(request_id, output_dir)
@@ -99,10 +145,6 @@ def download_all_products(products: list[dict] = ALL_PRODUCTS) -> list[Path]:
     return [download_product(product) for product in products]
 
 
-def main() -> list[Path]:
-    """Executa somente a etapa de download dos produtos GFS."""
-    return download_all_products()
-
-
 if __name__ == "__main__":
-    main()
+    download_all_products()
+
