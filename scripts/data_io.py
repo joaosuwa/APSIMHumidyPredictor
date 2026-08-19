@@ -6,12 +6,6 @@ from pathlib import Path
 
 import pandas as pd
 
-try:
-    from .paths import MODEL_DATA_DIR
-except ImportError:  # Permite executar módulos pelo caminho do arquivo.
-    from paths import MODEL_DATA_DIR
-
-
 def read_csv_files(
     source: str | Path | list[str | Path],
     pattern: str = "*.csv",
@@ -48,11 +42,3 @@ def write_csv(df: pd.DataFrame, path: str | Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False)
     return output_path
-
-
-def write_model_dataset(
-    df: pd.DataFrame,
-    path: str | Path = MODEL_DATA_DIR / "training_dataset.csv",
-) -> Path:
-    """Salva o dataset central que alimentará o modelo."""
-    return write_csv(df, path)

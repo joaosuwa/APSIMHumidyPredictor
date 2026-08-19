@@ -11,7 +11,7 @@ Os dados ficam separados em duas áreas:
 - `data/processed/validation`: resultados da validação das previsões;
 - `data/processed/model`: espaço reservado para o CSV central que será usado no treinamento do modelo.
 
-Os caminhos são definidos em `scripts/paths.py`. As operações genéricas de CSV ficam em `scripts/data_io.py`. O processamento específico foi separado por fonte: APSIM NG em `scripts/apsim/processing.py`, NASA POWER em `scripts/nasa_power/processing.py`, GFS em `scripts/gfs_data_extractor/` (incluindo a agregação de forecasts em `scripts/gfs_data_extractor/forecast.py`) e métricas estatísticas em `scripts/metrics/forecast.py`.
+Os caminhos são definidos em `scripts/paths.py`. As operações genéricas de CSV ficam em `scripts/data_io.py`. O processamento específico foi separado por fonte: APSIM NG em `scripts/apsim/processing.py`, NASA POWER em `scripts/nasa_power/processing.py`, GFS em `scripts/gfs_data_extractor/gfs_data_processing.py` e métricas estatísticas em `scripts/metrics/forecast.py`.
 
 Para processar o Report do APSIM:
 
@@ -29,9 +29,27 @@ python -m scripts.forecast_validation
 
 O arquivo de validação ficou responsável pela leitura das fontes e pela orquestração. As métricas são calculadas em `scripts.metrics.forecast`.
 
-Para baixar os produtos GFS, execute `python -m scripts.gfs_data_extractor.get_gfs_data`. Esse comando somente faz requisições e grava os downloads brutos em `data/raw/gfs/downloads`.
+Para baixar os produtos GFS, escolha as localidades e produtos na CLI. O grupo
+`forecast_24h` contém A PCP, U/V, RH e DPT:
 
-Para processar os downloads locais e gerar os arquivos consolidados, execute `python -m scripts.gfs_data_extractor.gfs_data_processing`. Esse comando não faz requisições externas e grava os resultados em `data/processed/gfs`.
+```bash
+python -m scripts.gfs_data_extractor.get_gfs_data --sites alegrete nova_ramada --products forecast_24h
+```
+
+É possível baixar somente chuva com `--products apcp_24` e sobrescrever o
+período usando `--start-date` e `--end-date` no formato `YYYYMMDDHHMM`. O
+comando somente faz requisições e grava os RAW em
+`data/raw/gfs/downloads/<produto>`.
+
+Para processar os downloads locais e gerar um arquivo diário por localidade:
+
+```bash
+python -m scripts.gfs_data_extractor.gfs_data_processing --sites alegrete nova_ramada
+```
+
+Esse comando não faz requisições externas e gera
+`gfs_daily_forecast_Alegrete.csv` e `gfs_daily_forecast_Nova_Ramada.csv` em
+`data/processed/gfs`.
 
 ## Ideia do projeto:
 
@@ -46,10 +64,10 @@ Construir um modelo de aprendizado de máquina que utilize dados provenientes de
 | Precipitação observada | Meteorológica | Principal entrada de água | INMET |
 | Irrigação aplicada no dia | Manejo | Fundamental para o modelo entender o efeito da irrigação | APSIM NG |
 | Irrigação aplicada no dia posterior | Manejo | Fundamental para o modelo entender o efeito da irrigação | APSIM NG |
-| ET0 | Meteorológica derivada | Será calculada em etapa posterior; não está no CSV atual | Etapa posterior |
+| ETo prevista | Meteorológica derivada | ETo de referência para `D+1`, calculada pelo método FAO-56 Penman--Monteith | GFS + PyETo |
 | ETreal | Meteorológica derivada | Quanto de água foi consumido solo + planta (Transpiração + evaporação) | APSIM NG |
 | Previsão de chuva | Meteorológica | - | [NCAR GDEX](https://gdex.ucar.edu/datasets/d084001/) |
-| Previsão de ET0 | Meteorológica derivada | Será calculada em etapa posterior; não está no CSV atual | Etapa posterior |
+| Previsão de ETo | Meteorológica derivada | Usa temperatura, radiação, vento, umidade e ponto de orvalho previstos para `D+1` | GFS + PyETo |
 | Temperatura média | Meteorológica | Influencia evapotranspiração | INMET |
 | Temperatura máxima/mínima | Meteorológica | Pode representar melhor extremos térmicos | INMET |
 | Umidade relativa | Meteorológica | Importante para a demanda evaporativa | INMET |
@@ -86,8 +104,13 @@ ETreal = [Soil].SoilWater.Es (Evaporação do solo) + [Plant].Leaf.Transpiration
 
 Depleção de água no solo (Dr) = DUL - SW de todas as camadas até zona radicular (Cálculo já feito no simulador)
 
-ET0 = Fórmula Priestley-Taylor (cálculo reservado para etapa posterior; não
-entra no dataset atual)
+ETo prevista = método FAO-56 Penman--Monteith usando PyETo. A temperatura
+máxima/mínima e a radiação são obtidas dos produtos GFS já consolidados. U GRD
+e V GRD são combinados para obter a velocidade do vento e convertidos de 10 m
+para 2 m. O DPT é convertido de Kelvin para Celsius e usado preferencialmente
+para obter a pressão real de vapor; a umidade relativa é usada como fallback.
+Na escala diária, o fluxo de calor do solo é considerado zero. A pressão
+atmosférica é estimada pela altitude configurada para cada local.
 
 Dia do ano =
 $$DOY_{\sin} = \sin\left(2\pi \frac{DOY}{365}\right)$$
@@ -107,13 +130,21 @@ OBS: INMET contém dados nulos (ausentes). NASA-POWER contém todos os dados no 
 
 ### GFS Archive (Dados disponíveis desde 13/06/2019):
 
-Previsão de chuva, temperatura máxima e mínima previstas e radiação prevista.
-O cálculo de ETo foi deixado para uma etapa posterior.
+Previsão de chuva, temperatura máxima e mínima previstas, radiação prevista,
+componentes U/V do vento, umidade relativa e ponto de orvalho. A temperatura e
+a radiação são montadas a partir dos intervalos `0–6`, `6–12`, `12–18` e
+`18–24` horas da mesma inicialização. O intervalo terminado às `00:00` é
+associado ao dia da inicialização anterior, sem outro deslocamento. A PCP,
+U/V, RH e DPT são produtos de horizonte de 24 horas: o registro de `00:00` é
+deslocado um dia para trás para recuperar a inicialização em `D`. A ETo
+prevista é calculada com FAO-56/PyETo.
 
 ## Fonte dos dados coletados:
 
 ### GFS Archive:
-Chuva acumulada futura (24h), temperatura futura (0h-6h,6h-12h,12h-18h,18h,24h) e radiação futura (0h-6h,6h-12h,12h-18h,18h,24h).
+Chuva acumulada futura (24h), temperatura futura (0h-6h, 6h-12h, 12h-18h,
+18h-24h), radiação futura (0h-6h, 6h-12h, 12h-18h, 18h-24h), U/V do vento a
+10 m, umidade relativa e ponto de orvalho a 2 m.
 
 ### NASA POWER:
 Dados históricos de clima

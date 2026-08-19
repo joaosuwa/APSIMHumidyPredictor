@@ -2,28 +2,35 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pandas as pd
 
-try:
+if __package__ in {None, ""}:  # Compatibilidade com ``python scripts/model_dataset.py``.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.apsim.processing import DEFAULT_REPORT, add_apsim_features, filter_to_crop_window, read_apsim_report
+    from scripts.data_io import write_csv
+    from scripts.eto import add_fao56_eto
+    from scripts.gfs_data_extractor.gfs_config import get_site, processed_forecast_path
+    from scripts.gfs_data_extractor.gfs_data_processing import generate_site_forecast
+    from scripts.nasa_power.processing import read_nasa_power_data
+    from scripts.paths import MODEL_DATA_DIR, PROCESSED_NASA_POWER_DIR, RAW_NASA_POWER_DIR
+else:
     from .apsim.processing import DEFAULT_REPORT, add_apsim_features, filter_to_crop_window, read_apsim_report
-    from .data_io import write_model_dataset
-    from .gfs_data_extractor.forecast import build_daily_forecast, read_forecast
+    from .data_io import write_csv
+    from .eto import add_fao56_eto
+    from .gfs_data_extractor.gfs_config import get_site, processed_forecast_path
+    from .gfs_data_extractor.gfs_data_processing import generate_site_forecast
     from .nasa_power.processing import read_nasa_power_data
-    from .paths import MODEL_DATA_DIR, PROCESSED_GFS_DIR, PROCESSED_NASA_POWER_DIR, RAW_GFS_DIR, RAW_NASA_POWER_DIR
-except ImportError:  # Permite executar o módulo pelo caminho do arquivo.
-    from apsim.processing import DEFAULT_REPORT, add_apsim_features, filter_to_crop_window, read_apsim_report
-    from data_io import write_model_dataset
-    from gfs_data_extractor.forecast import build_daily_forecast, read_forecast
-    from nasa_power.processing import read_nasa_power_data
-    from paths import MODEL_DATA_DIR, PROCESSED_GFS_DIR, PROCESSED_NASA_POWER_DIR, RAW_GFS_DIR, RAW_NASA_POWER_DIR
+    from .paths import MODEL_DATA_DIR, PROCESSED_NASA_POWER_DIR, RAW_NASA_POWER_DIR
 
 
 DEFAULT_OUTPUT = MODEL_DATA_DIR / "training_dataset.csv"
 DOCUMENTATION = Path(__file__).resolve().parents[1] / "dataset_treinamento.md"
 GROUP_COLS = ["SimulationName", "cycle_id"]
 TARGET_COLUMN = "deficit_agua_proximo_dia_mm"
+METADATA_COLUMNS = ["SimulationName", "Clock_today", "cycle_id"]
 
 MAIZE_LOCATION = {
     "Alegrete": "Alegrete",
@@ -49,6 +56,7 @@ FEATURE_COLUMNS = [
     "previsao_temperatura_maxima_C",
     "previsao_temperatura_minima_C",
     "previsao_radiacao_solar_MJ_m2_dia",
+    "previsao_eto_mm_dia",
     "temperatura_media_C",
     "temperatura_maxima_C",
     "temperatura_minima_C",
@@ -68,20 +76,14 @@ FEATURE_COLUMNS = [
     "taw_mm",
     "dias_desde_semeadura",
 ]
-FINAL_MODEL_COLUMNS = FEATURE_COLUMNS + [TARGET_COLUMN]
+FINAL_MODEL_COLUMNS = METADATA_COLUMNS + FEATURE_COLUMNS + [TARGET_COLUMN]
 
 
 def _load_nasa(location: str) -> pd.DataFrame:
-    processed_paths = {
-        "Alegrete": PROCESSED_NASA_POWER_DIR / "ClimaAlegrete2019-2026.processed.csv",
-        "NovaRamada": PROCESSED_NASA_POWER_DIR / "ClimaNovaRamada_2019-2026.processed.csv",
-    }
-    raw_paths = {
-        "Alegrete": RAW_NASA_POWER_DIR / "ClimaAlegrete2019-2026.csv",
-        "NovaRamada": RAW_NASA_POWER_DIR / "ClimaNovaRamada_2019-2026.csv",
-    }
-    path = processed_paths[location]
-    df = pd.read_csv(path) if path.exists() else read_nasa_power_data(raw_paths[location])
+    site = get_site(location)
+    raw_path = RAW_NASA_POWER_DIR / site.nasa_raw_filename
+    processed_path = PROCESSED_NASA_POWER_DIR / f"{raw_path.stem}.processed.csv"
+    df = pd.read_csv(processed_path) if processed_path.exists() else read_nasa_power_data(raw_path)
     df["date"] = pd.to_datetime(df["date"])
     return df[
         [
@@ -91,47 +93,21 @@ def _load_nasa(location: str) -> pd.DataFrame:
     ].copy()
 
 
-def _find_forecast_rain_file(location: str) -> Path:
-    matches = [
-        path for path in sorted(RAW_GFS_DIR.glob("Previs*"))
-        if location.lower() in path.name.lower()
-    ]
-    if not matches:
-        raise FileNotFoundError(f"Previsão de chuva GFS não encontrada para {location}")
-    return matches[0]
-
-
 def _load_gfs_forecasts(location: str) -> pd.DataFrame:
     """Retorna as previsões disponíveis em D para o dia D+1."""
-    rain = build_daily_forecast(
-        read_forecast(_find_forecast_rain_file(location)),
-        horario="00:00",
-    ).rename("previsao_chuva_24h_mm").rename_axis("date").reset_index()
-    rain["date"] = pd.to_datetime(rain["date"])
-
-    suffix = "Alegrete" if location == "Alegrete" else "Nova_Ramada"
-    temperature = pd.read_csv(PROCESSED_GFS_DIR / f"gfs_temperature_20190613_20260813_{suffix}.csv")
-    radiation = pd.read_csv(PROCESSED_GFS_DIR / f"gfs_radiation_20190613_20260813_{suffix}.csv")
-    forecast = temperature.merge(radiation, on="datetime", how="inner")
-    # O produto diário é válido na data de datetime; a previsão de D+1
-    # disponível no registro D é alinhada deslocando a data um dia para trás.
-    forecast["date"] = pd.to_datetime(forecast["datetime"]) - pd.Timedelta(days=1)
-    forecast = forecast.rename(
-        columns={
-            "Tmax_24h_C": "previsao_temperatura_maxima_C",
-            "Tmin_24h_C": "previsao_temperatura_minima_C",
-            "DSWRF_24h_MJ_m2": "previsao_radiacao_solar_MJ_m2_dia",
-        }
+    site = get_site(location)
+    path = processed_forecast_path(site)
+    if not path.exists():
+        generate_site_forecast(site)
+    forecast = pd.read_csv(path)
+    forecast["date"] = pd.to_datetime(forecast["date"], errors="coerce")
+    if forecast["date"].isna().any() or forecast["date"].duplicated().any():
+        raise ValueError(f"Datas inválidas ou duplicadas no forecast GFS: {path}")
+    return add_fao56_eto(
+        forecast,
+        latitude_deg=site.latitude,
+        elevation_m=site.elevation_m,
     )
-    forecast = forecast[
-        [
-            "date",
-            "previsao_temperatura_maxima_C",
-            "previsao_temperatura_minima_C",
-            "previsao_radiacao_solar_MJ_m2_dia",
-        ]
-    ]
-    return rain.merge(forecast, on="date", how="outer")
 
 
 def validate_dataset_schema(
@@ -155,7 +131,8 @@ def build_training_dataset(
 ) -> pd.DataFrame:
     """Gera, valida e salva o dataset central de treinamento."""
     apsim = add_apsim_features(filter_to_crop_window(read_apsim_report(report_path)))
-    apsim["date"] = pd.to_datetime(apsim["Clock.Today"])
+    apsim["Clock_today"] = pd.to_datetime(apsim["Clock.Today"]).dt.strftime("%Y-%m-%d")
+    apsim["date"] = pd.to_datetime(apsim["Clock_today"])
     apsim["local"] = apsim["SimulationName"].map(MAIZE_LOCATION)
     if apsim["local"].isna().any():
         raise ValueError("Existe simulação APSIM sem mapeamento para Alegrete/Nova Ramada")
@@ -215,7 +192,7 @@ def build_training_dataset(
     )
     final = df[FINAL_MODEL_COLUMNS].dropna().reset_index(drop=True)
     validate_dataset_schema(final, documentation_path)
-    write_model_dataset(final, output_path)
+    write_csv(final, output_path)
     return final
 
 

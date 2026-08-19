@@ -2,55 +2,40 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pandas as pd
 
-try:
+if __package__ in {None, ""}:  # Compatibilidade com ``python scripts/forecast_validation.py``.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.data_io import write_csv
+    from scripts.gfs_data_extractor.gfs_config import SITES
+    from scripts.gfs_data_extractor.gfs_data_processing import load_daily_24h_product
+    from scripts.metrics.forecast import compare_forecast
+    from scripts.nasa_power.processing import read_nasa_power_data
+    from scripts.paths import PROCESSED_VALIDATION_DIR, RAW_NASA_POWER_DIR
+else:
     from .data_io import write_csv
-    from .gfs_data_extractor.forecast import (
-        build_daily_forecast,
-        filter_future,
-        read_forecast,
-    )
-    from .metrics.forecast import (
-        compare_forecast,
-        detection_metrics as _detection_metrics,
-        error_metrics as _error_metrics,
-    )
-    from .nasa_power.processing import read_precipitation_series
-    from .paths import PROCESSED_VALIDATION_DIR, RAW_GFS_DIR, RAW_NASA_POWER_DIR
-except ImportError:  # Permite executar este arquivo diretamente.
-    from data_io import write_csv
-    from gfs_data_extractor.forecast import build_daily_forecast, filter_future, read_forecast
-    from metrics.forecast import (
-        compare_forecast,
-        detection_metrics as _detection_metrics,
-        error_metrics as _error_metrics,
-    )
-    from nasa_power.processing import read_precipitation_series
-    from paths import PROCESSED_VALIDATION_DIR, RAW_GFS_DIR, RAW_NASA_POWER_DIR
-
-
-FORECAST_PAIRS = [
-    (
-        RAW_GFS_DIR / "PrevisãoChuva24h_Alegrete_2019-2026.csv",
-        RAW_NASA_POWER_DIR / "ClimaAlegrete2019-2026.csv",
-        "Alegrete",
-    ),
-    (
-        RAW_GFS_DIR / "PrevisãoChuva24H_NovaRamada_2019-2026.csv",
-        RAW_NASA_POWER_DIR / "ClimaNovaRamada_2019-2026.csv",
-        "NovaRamada",
-    ),
-]
+    from .gfs_data_extractor.gfs_config import SITES
+    from .gfs_data_extractor.gfs_data_processing import load_daily_24h_product
+    from .metrics.forecast import compare_forecast
+    from .nasa_power.processing import read_nasa_power_data
+    from .paths import PROCESSED_VALIDATION_DIR, RAW_NASA_POWER_DIR
 
 DEFAULT_HORARIOS = ["00:00", "06:00", "12:00", "18:00"]
 
 
-def read_observed(path: str | Path) -> pd.Series:
-    """Alias compatível para a leitura da precipitação observada da NASA POWER."""
-    return read_precipitation_series(path)
+def _filter_future(
+    forecast: pd.Series,
+    reference_date: str | pd.Timestamp | None,
+    horizon_days: int | None,
+) -> pd.Series:
+    if reference_date is None:
+        return forecast
+    start = pd.Timestamp(reference_date).normalize()
+    end = None if horizon_days is None else start + pd.Timedelta(days=horizon_days - 1)
+    return forecast.loc[start:end]
 
 
 def compare_all(
@@ -66,20 +51,22 @@ def compare_all(
     metrics_frames = []
     future_info = {}
 
-    for forecast_path, observed_path, local in FORECAST_PAIRS:
-        forecast = read_forecast(forecast_path)
-        observed = read_observed(observed_path)
-        daily = build_daily_forecast(forecast, horario=horario)
-        future_info[local] = len(filter_future(daily, reference_date, horizon_days))
+    hour = pd.to_datetime(horario, format="%H:%M").hour
+    for site in SITES.values():
+        rain = load_daily_24h_product("apcp_24", site, hour=hour)
+        daily = rain.set_index("date")["previsao_chuva_24h_mm"]
+        observed_data = read_nasa_power_data(RAW_NASA_POWER_DIR / site.nasa_raw_filename)
+        observed = observed_data.set_index("date")["PRECTOTCORR"]
+        future_info[site.name] = len(_filter_future(daily, reference_date, horizon_days))
 
         metrics = compare_forecast(daily, observed, threshold=threshold)
         if not metrics.empty:
-            metrics.insert(0, "local", local)
+            metrics.insert(0, "local", site.name)
             metrics_frames.append(metrics)
 
         series = pd.DataFrame({"previsao": daily, "observado": observed}).dropna().sort_index()
         series = series.reset_index()
-        series.insert(0, "local", local)
+        series.insert(0, "local", site.name)
         series.columns = ["local", "data", "previsao", "observado"]
         series_frames.append(series)
 

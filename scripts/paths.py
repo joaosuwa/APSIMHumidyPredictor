@@ -24,18 +24,3 @@ PROCESSED_NASA_POWER_DIR = PROCESSED_DATA_DIR / "nasa_power"
 PROCESSED_GFS_DIR = PROCESSED_DATA_DIR / "gfs"
 PROCESSED_VALIDATION_DIR = PROCESSED_DATA_DIR / "validation"
 MODEL_DATA_DIR = PROCESSED_DATA_DIR / "model"
-
-
-def ensure_data_directories() -> None:
-    """Cria a estrutura de dados caso ela ainda não exista."""
-    for directory in (
-        RAW_APSIM_DIR,
-        RAW_NASA_POWER_DIR,
-        RAW_GFS_DIR,
-        PROCESSED_APSIM_DIR,
-        PROCESSED_NASA_POWER_DIR,
-        PROCESSED_GFS_DIR,
-        PROCESSED_VALIDATION_DIR,
-        MODEL_DATA_DIR,
-    ):
-        directory.mkdir(parents=True, exist_ok=True)

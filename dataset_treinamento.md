@@ -7,8 +7,12 @@ target é o déficit de água no dia seguinte (`D+1`), no mesmo cenário e ciclo
 A última linha de cada ciclo não entra no arquivo porque não possui observação
 de `D+1`. Linhas com alguma variável necessária ausente também são removidas.
 
-O cálculo de ETo foi deliberadamente deixado fora desta versão. Portanto, o
-dataset não possui coluna de ETo histórico nem de ETo previsto.
+O dataset possui a ETo de referência prevista para `D+1`, calculada a partir
+dos forecasts GFS pelo método FAO-56 Penman--Monteith usando PyETo.
+
+As colunas `SimulationName`, `Clock_today` e `cycle_id` são metadados mantidos
+para auditoria e cortes temporais. Elas não fazem parte das features usadas
+para treinar o modelo.
 
 ## Variáveis
 
@@ -26,6 +30,7 @@ dataset não possui coluna de ETo histórico nem de ETo previsto.
 | `previsao_temperatura_maxima_C` | GFS/GDEX | Máxima diária prevista para `D+1`, consolidada dos quatro intervalos de seis horas. |
 | `previsao_temperatura_minima_C` | GFS/GDEX | Mínima diária prevista para `D+1`, consolidada dos quatro intervalos de seis horas. |
 | `previsao_radiacao_solar_MJ_m2_dia` | GFS/GDEX | Radiação DSWRF prevista para `D+1`, agregada dos quatro intervalos de seis horas e convertida de W/m² para MJ/m²/dia. |
+| `previsao_eto_mm_dia` | GFS/GDEX + PyETo | ETo diária FAO-56 Penman--Monteith prevista para `D+1`, calculada com temperatura, radiação, vento, umidade e ponto de orvalho previstos pelo GFS. |
 | `temperatura_media_C` | NASA POWER | `T2M` diário. |
 | `temperatura_maxima_C` | NASA POWER | `T2M_MAX` diário. |
 | `temperatura_minima_C` | NASA POWER | `T2M_MIN` diário. |
@@ -46,12 +51,43 @@ dataset não possui coluna de ETo histórico nem de ETo previsto.
 | `dias_desde_semeadura` | APSIM NG | `Maize.DaysAfterSowing`. |
 | `deficit_agua_proximo_dia_mm` | APSIM NG | **Target**: `dr_mm` de `D+1`, obtido com `shift(-1)` agrupado por cenário e ciclo de cultivo. |
 
+## Metadados preservados
+
+| Coluna | Fonte | Como foi obtida |
+| :--- | :--- | :--- |
+| `SimulationName` | APSIM NG | Nome original da simulação APSIM. |
+| `Clock_today` | APSIM NG | `Clock.Today` convertido para a data ISO `YYYY-MM-DD`. |
+| `cycle_id` | APSIM NG + cálculo próprio | Identificador do ciclo, criado a partir das mudanças de `Maize.SowingDate` dentro de cada simulação. |
+
 ## Locais e alinhamento temporal
 
 As simulações APSIM com nome iniciado por `Alegrete` usam os arquivos de clima
 de Alegrete. As simulações `Simulation*` usam Nova Ramada. Os dados NASA POWER,
 GFS e APSIM são unidos pela localidade e pela data. As variáveis meteorológicas
 do GFS são alinhadas como previsão disponível em `D` para `D+1`.
+
+Os produtos GFS de horizonte de 24 horas (`A PCP`, `U GRD`, `V GRD`, `R H` e
+`DPT`) mantêm somente o registro de `00:00`. Como a data registrada no CSV
+representa o final do horizonte, a data de inicialização é calculada como
+`Date - 1 dia`. Assim, `6/14/2019,0:00` representa a inicialização de
+`2019-06-13`.
+
+Tmax, Tmin e DSWRF são diferentes: cada dia é formado pelos quatro produtos de
+seis horas `0–6`, `6–12`, `12–18` e `18–24`. Os três primeiros terminam às
+`06:00`, `12:00` e `18:00`; o último termina às `00:00` do dia seguinte e é
+associado ao mesmo dia de inicialização. Não há um segundo deslocamento depois
+dessa consolidação. Dias sem os quatro intervalos são descartados.
+
+O pipeline grava todas essas variáveis em um único arquivo por localidade:
+`gfs_daily_forecast_Alegrete.csv` ou `gfs_daily_forecast_Nova_Ramada.csv`.
+
+Para a ETo, U/V são combinados em velocidade do vento a 10 m e convertidos
+para 2 m. O DPT em Kelvin é convertido para Celsius e usado preferencialmente
+para calcular a pressão real de vapor; RH é usado como fallback. A pressão
+atmosférica é estimada pela altitude configurada para cada localidade:
+
+- Alegrete: 102 m;
+- Nova Ramada: 511 m.
 
 ## Referência do GDD
 

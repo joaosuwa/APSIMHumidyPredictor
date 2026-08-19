@@ -8,15 +8,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-try:
-    from ..data_io import write_csv
-    from ..paths import PROCESSED_NASA_POWER_DIR, ensure_data_directories
-except ImportError:  # Permite executar o ponto de entrada diretamente.
-    from data_io import write_csv
-    from paths import PROCESSED_NASA_POWER_DIR, ensure_data_directories
-
-
-ensure_data_directories()
+from ..data_io import write_csv
+from ..paths import PROCESSED_NASA_POWER_DIR
 
 
 def read_nasa_power_data(path: str | Path) -> pd.DataFrame:
@@ -51,9 +44,3 @@ def process_nasa_power_data(
         output_path = PROCESSED_NASA_POWER_DIR / f"{Path(input_path).stem}.processed.csv"
     write_csv(df, output_path)
     return df
-
-
-def read_precipitation_series(path: str | Path) -> pd.Series:
-    """Lê a precipitação observada da NASA POWER como série indexada por data."""
-    observed = read_nasa_power_data(path)
-    return observed.set_index("date")["PRECTOTCORR"]

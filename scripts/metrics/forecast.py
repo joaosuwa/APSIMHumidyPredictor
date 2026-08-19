@@ -81,8 +81,3 @@ def compare_forecast(
             **detection_metrics(group["previsao"], group["observado"], threshold),
         })
     return pd.DataFrame(rows)
-
-
-# Aliases temporários para consumidores que usavam os nomes internos antigos.
-_detection_metrics = detection_metrics
-_error_metrics = error_metrics

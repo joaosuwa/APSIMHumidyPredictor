@@ -8,20 +8,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-try:
-    from ..data_io import write_csv
-    from ..paths import MODEL_DATA_DIR, PROCESSED_APSIM_DIR, RAW_APSIM_DIR, ensure_data_directories
-except ImportError:  # Permite executar o ponto de entrada diretamente.
-    from data_io import write_csv
-    from paths import MODEL_DATA_DIR, PROCESSED_APSIM_DIR, RAW_APSIM_DIR, ensure_data_directories
-
-
-ensure_data_directories()
+from ..data_io import write_csv
+from ..paths import PROCESSED_APSIM_DIR, RAW_APSIM_DIR
 
 DEFAULT_REPORT = RAW_APSIM_DIR / "milho.Report.csv"
 DEFAULT_OUTPUT = PROCESSED_APSIM_DIR / "milho.Report.processed.csv"
-DEFAULT_MODEL_DATASET = MODEL_DATA_DIR / "training_dataset.csv"
-
 N_LAYERS = 7
 
 # Parâmetros de milho usados pelo AquaCrop/FAO para o cálculo de tempo térmico.

@@ -2,7 +2,6 @@
 
 from .processing import (
     DEFAULT_COLUMNS_TO_DROP,
-    DEFAULT_MODEL_DATASET,
     DEFAULT_OUTPUT,
     DEFAULT_REPORT,
     MAIZE_TBASE_C,
@@ -17,7 +16,6 @@ from .processing import (
 
 __all__ = [
     "DEFAULT_COLUMNS_TO_DROP",
-    "DEFAULT_MODEL_DATASET",
     "DEFAULT_OUTPUT",
     "DEFAULT_REPORT",
     "MAIZE_TBASE_C",
