@@ -181,6 +181,30 @@ def maize_gdd_daily(
     return pd.Series(daily, index=getattr(tmax, "index", None), name="GDD_dia")
 
 
+def add_past_water_inputs(df: pd.DataFrame, max_lag_days: int = 3) -> pd.DataFrame:
+    """Adiciona chuva + irrigação passadas sem atravessar ciclos de cultivo."""
+    if max_lag_days < 1:
+        raise ValueError("max_lag_days deve ser maior ou igual a 1")
+
+    required = [*GROUP_COLS, "Weather.Rain", "Irrigation.IrrigationApplied"]
+    missing = [column for column in required if column not in df.columns]
+    if missing:
+        raise ValueError(f"Colunas ausentes para calcular entradas de água: {missing}")
+
+    result = df.copy()
+    water_input = (
+        result["Weather.Rain"].fillna(0.0)
+        + result["Irrigation.IrrigationApplied"].fillna(0.0)
+    )
+    water_group = water_input.groupby(
+        [result[column] for column in GROUP_COLS],
+        sort=False,
+    )
+    for days in range(1, max_lag_days + 1):
+        result[f"Chuva_Irrigacao_passada_{days}d"] = water_group.shift(days)
+    return result
+
+
 def add_apsim_features(df: pd.DataFrame) -> pd.DataFrame:
     """Adiciona features calculadas exclusivamente com dados do APSIM NG."""
     df = df.copy()
@@ -212,16 +236,7 @@ def add_apsim_features(df: pd.DataFrame) -> pd.DataFrame:
     for days in range(1, 4):
         df[f"Umidade_solo_passada_{days}d"] = soil_group.shift(days)
 
-    water_input = (
-        df["Weather.Rain"].fillna(0.0)
-        + df["Irrigation.IrrigationApplied"].fillna(0.0)
-    )
-    water_group = water_input.groupby(
-        [df[column] for column in GROUP_COLS],
-        sort=False,
-    )
-    for days in range(1, 4):
-        df[f"Chuva_Irrigacao_passada_{days}d"] = water_group.shift(days)
+    df = add_past_water_inputs(df)
 
     doy = df["Clock.Today"].dt.dayofyear.to_numpy(float)
     month = df["Clock.Today"].dt.month.to_numpy(float)

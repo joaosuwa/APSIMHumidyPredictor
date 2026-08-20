@@ -30,7 +30,7 @@ DEFAULT_OUTPUT = MODEL_DATA_DIR / "training_dataset.csv"
 DOCUMENTATION = Path(__file__).resolve().parents[1] / "dataset_treinamento.md"
 GROUP_COLS = ["SimulationName", "cycle_id"]
 TARGET_COLUMN = "deficit_agua_proximo_dia_mm"
-METADATA_COLUMNS = ["SimulationName", "Clock_today", "cycle_id"]
+METADATA_COLUMNS = ["SimulationName", "Clock_today", "sowing_date", "cycle_id"]
 
 MAIZE_LOCATION = {
     "Alegrete": "Alegrete",
@@ -51,6 +51,9 @@ FEATURE_COLUMNS = [
     "precipitacao_observada_mm",
     "irrigacao_aplicada_mm",
     "irrigacao_aplicada_dia_posterior_mm",
+    "chuva_irrigacao_passada_1d_mm",
+    "chuva_irrigacao_passada_2d_mm",
+    "chuva_irrigacao_passada_3d_mm",
     "etreal_mm_dia",
     "previsao_chuva_24h_mm",
     "previsao_temperatura_maxima_C",
@@ -132,6 +135,7 @@ def build_training_dataset(
     """Gera, valida e salva o dataset central de treinamento."""
     apsim = add_apsim_features(filter_to_crop_window(read_apsim_report(report_path)))
     apsim["Clock_today"] = pd.to_datetime(apsim["Clock.Today"]).dt.strftime("%Y-%m-%d")
+    apsim["sowing_date"] = pd.to_datetime(apsim["Maize.SowingDate"]).dt.strftime("%Y-%m-%d")
     apsim["date"] = pd.to_datetime(apsim["Clock_today"])
     apsim["local"] = apsim["SimulationName"].map(MAIZE_LOCATION)
     if apsim["local"].isna().any():
@@ -169,6 +173,9 @@ def build_training_dataset(
             "PRECTOTCORR": "precipitacao_observada_mm",
             "Irrigation.IrrigationApplied": "irrigacao_aplicada_mm",
             "Irrigacao_dia_posterior": "irrigacao_aplicada_dia_posterior_mm",
+            "Chuva_Irrigacao_passada_1d": "chuva_irrigacao_passada_1d_mm",
+            "Chuva_Irrigacao_passada_2d": "chuva_irrigacao_passada_2d_mm",
+            "Chuva_Irrigacao_passada_3d": "chuva_irrigacao_passada_3d_mm",
             "ETreal": "etreal_mm_dia",
             "T2M": "temperatura_media_C",
             "T2M_MAX": "temperatura_maxima_C",

@@ -10,9 +10,14 @@ de `D+1`. Linhas com alguma variável necessária ausente também são removidas
 O dataset possui a ETo de referência prevista para `D+1`, calculada a partir
 dos forecasts GFS pelo método FAO-56 Penman--Monteith usando PyETo.
 
-As colunas `SimulationName`, `Clock_today` e `cycle_id` são metadados mantidos
+As colunas `SimulationName`, `Clock_today`, `sowing_date` e `cycle_id` são metadados mantidos
 para auditoria e cortes temporais. Elas não fazem parte das features usadas
 para treinar o modelo.
+
+As colunas `irrigacao_aplicada_mm` e
+`irrigacao_aplicada_dia_posterior_mm` continuam no CSV central para auditoria e
+experimentos futuros, mas não fazem parte das features da configuração atual em
+`modeling`. Essa configuração usa somente cenários não irrigados.
 
 ## Variáveis
 
@@ -25,6 +30,9 @@ para treinar o modelo.
 | `precipitacao_observada_mm` | NASA POWER | `PRECTOTCORR` diário do local e da data. |
 | `irrigacao_aplicada_mm` | APSIM NG | `Irrigation.IrrigationApplied` do dia `D`. |
 | `irrigacao_aplicada_dia_posterior_mm` | APSIM NG | Irrigação aplicada em `D+1`, obtida por deslocamento dentro do mesmo cenário e ciclo. É uma variável de manejo futuro e só deve ser usada se o cronograma de `D+1` for conhecido no momento da previsão. |
+| `chuva_irrigacao_passada_1d_mm` | APSIM NG | Soma de chuva e irrigação aplicada em `D-1`, deslocada dentro do mesmo cenário e ciclo. |
+| `chuva_irrigacao_passada_2d_mm` | APSIM NG | Soma de chuva e irrigação aplicada em `D-2`, deslocada dentro do mesmo cenário e ciclo. |
+| `chuva_irrigacao_passada_3d_mm` | APSIM NG | Soma de chuva e irrigação aplicada em `D-3`, deslocada dentro do mesmo cenário e ciclo. |
 | `etreal_mm_dia` | APSIM NG | Evaporação do solo + transpiração da planta no dia `D`. |
 | `previsao_chuva_24h_mm` | GFS/GDEX | Previsão de chuva acumulada em 24 horas disponível em `D` para o dia seguinte. Foi usada a previsão das 00:00 UTC. |
 | `previsao_temperatura_maxima_C` | GFS/GDEX | Máxima diária prevista para `D+1`, consolidada dos quatro intervalos de seis horas. |
@@ -57,6 +65,7 @@ para treinar o modelo.
 | :--- | :--- | :--- |
 | `SimulationName` | APSIM NG | Nome original da simulação APSIM. |
 | `Clock_today` | APSIM NG | `Clock.Today` convertido para a data ISO `YYYY-MM-DD`. |
+| `sowing_date` | APSIM NG | Data de semeadura do ciclo, convertida para a data ISO `YYYY-MM-DD`. |
 | `cycle_id` | APSIM NG + cálculo próprio | Identificador do ciclo, criado a partir das mudanças de `Maize.SowingDate` dentro de cada simulação. |
 
 ## Locais e alinhamento temporal
