@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import LeaveOneGroupOut
 
@@ -17,7 +18,11 @@ SIMULATION_COLUMN = "SimulationName"
 CYCLE_COLUMN = "cycle_id"
 DATE_COLUMN = "Clock_today"
 SOWING_DATE_COLUMN = "sowing_date"
-TARGET_COLUMN = "deficit_agua_proximo_dia_mm"
+NEXT_DEFICIT_COLUMN = "deficit_agua_proximo_dia_mm"
+VARIATION_TARGET_COLUMN = "variacao_deficit_proximo_dia_mm"
+NEXT_DAY_OBSERVED_RAIN_COLUMN = "precipitacao_observada_dia_posterior_mm"
+TARGET_COLUMN = VARIATION_TARGET_COLUMN
+TARGET_COLUMNS = (NEXT_DEFICIT_COLUMN, VARIATION_TARGET_COLUMN)
 CYCLE_COLUMNS = (SIMULATION_COLUMN, CYCLE_COLUMN)
 
 NON_IRRIGATED_SIMULATIONS = frozenset(
@@ -47,6 +52,9 @@ MODELING_FEATURE_COLUMNS = (
     "previsao_temperatura_maxima_C",
     "previsao_temperatura_minima_C",
     "previsao_radiacao_solar_MJ_m2_dia",
+    "umidade_relativa_prevista_pct",
+    "ponto_orvalho_previsto_C",
+    "velocidade_vento_prevista_2m_m_s",
     "previsao_eto_mm_dia",
     "temperatura_media_C",
     "temperatura_maxima_C",
@@ -106,11 +114,55 @@ def load_training_dataset(path: str | Path) -> pd.DataFrame:
     if not dataset_path.is_file():
         raise FileNotFoundError(f"Dataset de treinamento não encontrado: {dataset_path}")
     df = pd.read_csv(dataset_path)
-    _require_columns(df, (*METADATA_COLUMNS, TARGET_COLUMN))
+    _require_columns(
+        df,
+        (
+            *METADATA_COLUMNS,
+            *TARGET_COLUMNS,
+            NEXT_DAY_OBSERVED_RAIN_COLUMN,
+            "dr_mm",
+            "umidade_relativa_prevista_pct",
+            "ponto_orvalho_previsto_C",
+            "velocidade_vento_prevista_2m_m_s",
+        ),
+    )
     for column in (DATE_COLUMN, SOWING_DATE_COLUMN):
         df[column] = pd.to_datetime(df[column], errors="coerce")
         if df[column].isna().any():
             raise ValueError(f"{column} contém valores ausentes ou inválidos")
+    expected_variation = df[NEXT_DEFICIT_COLUMN] - df["dr_mm"]
+    if not expected_variation.equals(df[VARIATION_TARGET_COLUMN]):
+        difference = (expected_variation - df[VARIATION_TARGET_COLUMN]).abs().max()
+        if difference > 1e-9:
+            raise ValueError(
+                f"{VARIATION_TARGET_COLUMN} não corresponde a "
+                f"{NEXT_DEFICIT_COLUMN} - dr_mm; diferença máxima={difference}"
+            )
+    humidity = pd.to_numeric(df["umidade_relativa_prevista_pct"], errors="coerce")
+    dew_point = pd.to_numeric(df["ponto_orvalho_previsto_C"], errors="coerce")
+    wind_2m = pd.to_numeric(
+        df["velocidade_vento_prevista_2m_m_s"], errors="coerce"
+    )
+    next_rain = pd.to_numeric(df[NEXT_DAY_OBSERVED_RAIN_COLUMN], errors="coerce")
+    if humidity.isna().any() or ((humidity < 0) | (humidity > 100)).any():
+        raise ValueError("umidade relativa prevista fora de [0, 100]")
+    if dew_point.isna().any() or not np.isfinite(dew_point).all():
+        raise ValueError("ponto de orvalho previsto contém valor inválido")
+    if wind_2m.isna().any() or not np.isfinite(wind_2m).all() or (wind_2m < 0).any():
+        raise ValueError("vento previsto a 2 m contém valor inválido")
+    if next_rain.isna().any() or not np.isfinite(next_rain).all() or (next_rain < 0).any():
+        raise ValueError("precipitação observada em D+1 contém valor inválido")
+
+    grouped = df.groupby([SIMULATION_COLUMN, CYCLE_COLUMN], sort=False)
+    next_dates = grouped[DATE_COLUMN].shift(-1)
+    next_observed_rain = grouped["precipitacao_observada_mm"].shift(-1)
+    consecutive = next_dates.eq(df[DATE_COLUMN] + pd.Timedelta(days=1))
+    if not np.allclose(
+        df.loc[consecutive, NEXT_DAY_OBSERVED_RAIN_COLUMN],
+        next_observed_rain.loc[consecutive],
+        atol=1e-9,
+    ):
+        raise ValueError("precipitação observada em D+1 está desalinhada")
     return df
 
 
@@ -216,7 +268,7 @@ def prepare_data(config: DataConfig) -> PreparedData:
     df = load_training_dataset(config.dataset_path)
     _require_columns(
         df,
-        (*MODELING_FEATURE_COLUMNS, *DIRECT_IRRIGATION_COLUMNS, TARGET_COLUMN),
+        (*MODELING_FEATURE_COLUMNS, *DIRECT_IRRIGATION_COLUMNS, *TARGET_COLUMNS),
     )
     filtered = filter_simulations(df, config.included_simulations)
     _validate_cycle_alignment(filtered)

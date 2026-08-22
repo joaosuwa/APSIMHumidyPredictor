@@ -66,10 +66,11 @@ python -m scripts.model_dataset
 ```
 
 Cada linha contém as variáveis disponíveis no dia `D`. O alvo é
-`deficit_agua_proximo_dia_mm`, calculado como `Dr_root` do dia `D+1` no mesmo
-cenário e ciclo de cultivo. A última linha de cada ciclo é removida porque não
-tem observação do dia seguinte. As previsões de chuva, temperatura e radiação
-são as previsões disponíveis em `D` para `D+1`. O detalhamento completo está em
+`variacao_deficit_proximo_dia_mm`, calculado como o déficit de `D+1` menos
+`dr_mm` em `D`, dentro do mesmo cenário e ciclo. A última linha de cada ciclo é
+removida porque não tem observação do dia seguinte. Chuva, temperatura,
+radiação, umidade relativa, ponto de orvalho e vento são previsões disponíveis
+em `D` para `D+1`. O detalhamento completo está em
 [`dataset_treinamento.md`](dataset_treinamento.md).
 
 ### Preparação e treinamento dos modelos
@@ -78,7 +79,7 @@ Instale as dependências e execute o pipeline completo:
 
 ```bash
 python -m pip install -r requirements-modeling.txt
-python modeling/main.py --trials 50 --seed 42
+python modeling/main.py --trials 20 --seed 42 --metric rmse
 ```
 
 A configuração tipada em `modeling/config.py` seleciona as simulações e os
@@ -89,10 +90,15 @@ os ciclos `0–5` formam seis folds de cross-validation. As colunas diretas de
 irrigação permanecem no CSV para auditoria, mas ficam fora das features desta
 configuração não irrigada.
 
-O treinamento compara XGBoost, LightGBM e CatBoost. Os hiperparâmetros são
-otimizados com Optuna pelo MAE das previsões out-of-fold dos ciclos `0–5`; o
-ciclo `6` só é avaliado depois da escolha do campeão. Modelos, métricas,
-previsões e gráficos são gravados em `modeling/artifacts/default`.
+O treinamento compara XGBoost, LightGBM e CatBoost. O target é
+`variacao_deficit_proximo_dia_mm`, calculado como o déficit de `D+1` menos
+`dr_mm` em `D`. Os hiperparâmetros são otimizados com Optuna pelo RMSE das
+previsões out-of-fold dos ciclos `0–5`; o ciclo `6` só é avaliado depois da
+escolha do campeão. O déficit absoluto previsto é reconstruído somando `dr_mm`
+à variação prevista. MAE, R², bias e métricas por intensidade da chuva real
+continuam nos relatórios. Modelos, parâmetros, métricas, previsões, permutation
+importance dos três algoritmos e gráficos são gravados em
+`modeling/artifacts/variation_target`.
 
 A lógica completa, os espaços de busca, as regras contra vazamento e a lista
 de artefatos estão documentados em [`modeling/TRAINING.md`](modeling/TRAINING.md).

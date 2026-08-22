@@ -16,6 +16,27 @@ except ImportError as exc:  # pragma: no cover - depende do ambiente externo.
     ) from exc
 
 
+FORECAST_WIND_2M_COLUMN = "velocidade_vento_prevista_2m_m_s"
+
+
+def calculate_forecast_wind_speed_2m(forecast: pd.DataFrame) -> pd.Series:
+    """Combina U/V a 10 m e converte a velocidade para 2 m pela FAO-56."""
+    required = {"u_grd_10m_m_s", "v_grd_10m_m_s"}
+    missing = sorted(required - set(forecast.columns))
+    if missing:
+        raise ValueError(f"Dados insuficientes para calcular vento a 2 m: {missing}")
+
+    u_component = pd.to_numeric(forecast["u_grd_10m_m_s"], errors="coerce")
+    v_component = pd.to_numeric(forecast["v_grd_10m_m_s"], errors="coerce")
+    wind_10m = np.hypot(u_component, v_component)
+    # Equação 47 da FAO-56, também usada por ``pyeto.wind_speed_2m``.
+    wind_2m = wind_10m * 4.87 / np.log(67.8 * 10.0 - 5.42)
+    result = pd.Series(wind_2m, index=forecast.index, dtype=float)
+    result.loc[~np.isfinite(result)] = np.nan
+    result.name = FORECAST_WIND_2M_COLUMN
+    return result
+
+
 def _calculate_row_eto(
     row: pd.Series,
     *,
@@ -143,8 +164,9 @@ def add_fao56_eto(
     latitude_deg: float,
     elevation_m: float,
 ) -> pd.DataFrame:
-    """Adiciona ETo prevista ao DataFrame sem alterar as demais colunas."""
+    """Adiciona vento a 2 m e ETo prevista sem remover colunas do forecast."""
     result = forecast.copy()
+    result[FORECAST_WIND_2M_COLUMN] = calculate_forecast_wind_speed_2m(result)
     result["previsao_eto_mm_dia"] = calculate_fao56_eto(
         result,
         latitude_deg=latitude_deg,

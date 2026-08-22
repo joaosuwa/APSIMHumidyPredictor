@@ -13,8 +13,8 @@ import numpy as np
 import optuna
 import pandas as pd
 
-from .config import TrainingConfig
-from .data import CycleFold
+from ..config import TrainingConfig
+from ..data import CycleFold
 from .evaluation import regression_metrics
 from .models import (
     SEARCH_SPACE_VERSION,
@@ -29,8 +29,6 @@ from .models import (
 
 @dataclass(frozen=True, slots=True)
 class CrossValidationResult:
-    """Previsões OOF, métricas por fold e contagens ótimas de árvores."""
-
     predictions: pd.Series
     fold_metrics: pd.DataFrame
     aggregate_metrics: dict[str, float]
@@ -39,8 +37,6 @@ class CrossValidationResult:
 
 @dataclass(frozen=True, slots=True)
 class TuningResult:
-    """Resultado completo do estudo vencedor de um algoritmo."""
-
     model_name: ModelName
     study_name: str
     best_params: dict[str, Any]
@@ -48,6 +44,22 @@ class TuningResult:
     final_iterations: int
     cv: CrossValidationResult
     study: optuna.Study
+
+
+def accumulated_objective_value(
+    error_sum: float, evaluated_rows: int, objective_metric: str
+) -> float:
+    """Converte a soma de erros por linha no valor global reportado ao pruner."""
+    if evaluated_rows <= 0:
+        raise ValueError("evaluated_rows deve ser maior que zero")
+    if error_sum < 0 or not np.isfinite(error_sum):
+        raise ValueError("error_sum deve ser finita e não negativa")
+    mean_error = error_sum / evaluated_rows
+    if objective_metric == "mae":
+        return float(mean_error)
+    if objective_metric == "rmse":
+        return float(np.sqrt(mean_error))
+    raise ValueError(f"Métrica de objetivo desconhecida: {objective_metric}")
 
 
 def build_training_fingerprint(
@@ -60,8 +72,8 @@ def build_training_fingerprint(
     seed: int,
     max_iterations: int,
     early_stopping_rounds: int,
+    objective_metric: str,
 ) -> tuple[str, str]:
-    """Identifica de forma estável os dados e as decisões que afetam um estudo."""
     path = Path(dataset_path)
     dataset_hash = hashlib.sha256(path.read_bytes()).hexdigest()
     payload = {
@@ -73,6 +85,7 @@ def build_training_fingerprint(
         "seed": seed,
         "max_iterations": max_iterations,
         "early_stopping_rounds": early_stopping_rounds,
+        "objective_metric": objective_metric,
         "search_space_version": SEARCH_SPACE_VERSION,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -98,7 +111,7 @@ def cross_validate_parameters(
     predictions = pd.Series(np.nan, index=development.index, dtype=float, name=model_name)
     records: list[dict[str, float | int | str]] = []
     iterations: list[int] = []
-    absolute_error_sum = 0.0
+    error_sum = 0.0
     evaluated_rows = 0
 
     for step, fold in enumerate(folds):
@@ -108,6 +121,7 @@ def cross_validate_parameters(
             seed=config.seed,
             iterations=config.max_iterations,
             early_stopping_rounds=config.early_stopping_rounds,
+            objective_metric=config.objective_metric,
         )
         fit_with_validation(
             model_name,
@@ -117,6 +131,7 @@ def cross_validate_parameters(
             X.loc[fold.validation_indices],
             y.loc[fold.validation_indices],
             early_stopping_rounds=config.early_stopping_rounds,
+            objective_metric=config.objective_metric,
         )
         fold_prediction = np.asarray(
             model.predict(X.loc[fold.validation_indices]), dtype=float
@@ -134,13 +149,17 @@ def cross_validate_parameters(
                 **metrics,
             }
         )
-
-        absolute_error_sum += float(
-            np.abs(y.loc[fold.validation_indices].to_numpy(float) - fold_prediction).sum()
-        )
+        errors = y.loc[fold.validation_indices].to_numpy(float) - fold_prediction
+        if config.objective_metric == "mae":
+            error_sum += float(np.abs(errors).sum())
+        else:
+            error_sum += float(np.square(errors).sum())
         evaluated_rows += len(fold.validation_indices)
         if trial is not None:
-            trial.report(absolute_error_sum / evaluated_rows, step=step)
+            accumulated_metric = accumulated_objective_value(
+                error_sum, evaluated_rows, config.objective_metric
+            )
+            trial.report(accumulated_metric, step=step)
             if trial.should_prune():
                 trial.set_user_attr("best_iterations_partial", iterations)
                 raise optuna.TrialPruned()
@@ -148,11 +167,10 @@ def cross_validate_parameters(
     if predictions.isna().any():
         missing = predictions.index[predictions.isna()].tolist()
         raise ValueError(f"Cross-validation não cobriu todas as linhas: {missing[:10]}")
-    aggregate = regression_metrics(y, predictions)
     return CrossValidationResult(
         predictions=predictions,
         fold_metrics=pd.DataFrame.from_records(records),
-        aggregate_metrics=aggregate,
+        aggregate_metrics=regression_metrics(y, predictions),
         best_iterations=tuple(iterations),
     )
 
@@ -166,20 +184,17 @@ def tune_model(
     config: TrainingConfig,
     fingerprint: str,
 ) -> TuningResult:
-    """Cria ou retoma o estudo e reconstrói as previsões do melhor trial."""
     studies_dir = config.output_dir / "studies"
     results_dir = config.output_dir / "results"
     studies_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
     database_path = (studies_dir / "optuna.sqlite3").resolve().as_posix()
-    study_name = f"water_deficit_{model_name}_{fingerprint[:16]}"
-    sampler = optuna.samplers.TPESampler(seed=config.seed, n_startup_trials=10)
-    pruner = optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=2)
+    study_name = f"water_deficit_variation_{model_name}_{fingerprint[:16]}"
     study = optuna.create_study(
         study_name=study_name,
         direction="minimize",
-        sampler=sampler,
-        pruner=pruner,
+        sampler=optuna.samplers.TPESampler(seed=config.seed, n_startup_trials=10),
+        pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=2),
         storage=f"sqlite:///{database_path}",
         load_if_exists=True,
     )
@@ -197,7 +212,7 @@ def tune_model(
             trial=trial,
         )
         trial.set_user_attr("best_iterations", list(cv.best_iterations))
-        return cv.aggregate_metrics["mae"]
+        return cv.aggregate_metrics[config.objective_metric]
 
     terminal_states = {
         optuna.trial.TrialState.COMPLETE,
@@ -230,7 +245,7 @@ def tune_model(
         model_name=model_name,
         study_name=study_name,
         best_params=best_params,
-        best_value=float(cv.aggregate_metrics["mae"]),
+        best_value=float(cv.aggregate_metrics[config.objective_metric]),
         final_iterations=final_iterations,
         cv=cv,
         study=study,
@@ -244,7 +259,6 @@ def train_from_tuning_result(
     target_column: str,
     config: TrainingConfig,
 ) -> Any:
-    """Refaz o ajuste vencedor em todas as linhas de desenvolvimento."""
     return fit_final_model(
         result.model_name,
         result.best_params,
@@ -252,4 +266,5 @@ def train_from_tuning_result(
         development.loc[:, target_column],
         seed=config.seed,
         iterations=result.final_iterations,
+        objective_metric=config.objective_metric,
     )

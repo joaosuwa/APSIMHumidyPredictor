@@ -3,12 +3,16 @@
 Arquivo gerado: `data/processed/model/training_dataset.csv`.
 
 Cada linha representa o dia `D` de um cenário e ciclo de cultivo de milho. O
-target é o déficit de água no dia seguinte (`D+1`), no mesmo cenário e ciclo.
+target de treinamento é a variação do déficit de água até o dia seguinte
+(`D+1`), no mesmo cenário e ciclo. O déficit absoluto de `D+1` também é
+preservado para auditoria e reconstrução das previsões.
 A última linha de cada ciclo não entra no arquivo porque não possui observação
 de `D+1`. Linhas com alguma variável necessária ausente também são removidas.
 
 O dataset possui a ETo de referência prevista para `D+1`, calculada a partir
-dos forecasts GFS pelo método FAO-56 Penman--Monteith usando PyETo.
+dos forecasts GFS pelo método FAO-56 Penman--Monteith usando PyETo. Umidade
+relativa, ponto de orvalho e velocidade do vento prevista a 2 m também são
+preservados como features independentes.
 
 As colunas `SimulationName`, `Clock_today`, `sowing_date` e `cycle_id` são metadados mantidos
 para auditoria e cortes temporais. Elas não fazem parte das features usadas
@@ -38,6 +42,9 @@ experimentos futuros, mas não fazem parte das features da configuração atual 
 | `previsao_temperatura_maxima_C` | GFS/GDEX | Máxima diária prevista para `D+1`, consolidada dos quatro intervalos de seis horas. |
 | `previsao_temperatura_minima_C` | GFS/GDEX | Mínima diária prevista para `D+1`, consolidada dos quatro intervalos de seis horas. |
 | `previsao_radiacao_solar_MJ_m2_dia` | GFS/GDEX | Radiação DSWRF prevista para `D+1`, agregada dos quatro intervalos de seis horas e convertida de W/m² para MJ/m²/dia. |
+| `umidade_relativa_prevista_pct` | GFS/GDEX | Umidade relativa prevista em `D` para `D+1`, limitada fisicamente ao intervalo de 0% a 100%. |
+| `ponto_orvalho_previsto_C` | GFS/GDEX | Ponto de orvalho previsto em `D` para `D+1`, convertido de Kelvin para graus Celsius durante a consolidação. |
+| `velocidade_vento_prevista_2m_m_s` | GFS/GDEX + cálculo FAO-56 | Módulo do vento previsto a 10 m, `sqrt(U² + V²)`, convertido para 2 m pela equação 47 da FAO-56. |
 | `previsao_eto_mm_dia` | GFS/GDEX + PyETo | ETo diária FAO-56 Penman--Monteith prevista para `D+1`, calculada com temperatura, radiação, vento, umidade e ponto de orvalho previstos pelo GFS. |
 | `temperatura_media_C` | NASA POWER | `T2M` diário. |
 | `temperatura_maxima_C` | NASA POWER | `T2M_MAX` diário. |
@@ -57,7 +64,9 @@ experimentos futuros, mas não fazem parte das features da configuração atual 
 | `drenagem_mm` | APSIM NG | `Soil.SoilWater.Drainage` do dia `D`. |
 | `taw_mm` | APSIM NG + cálculo próprio | Água total disponível na zona radicular: soma de `DUL - LL` nas camadas radiculares. |
 | `dias_desde_semeadura` | APSIM NG | `Maize.DaysAfterSowing`. |
-| `deficit_agua_proximo_dia_mm` | APSIM NG | **Target**: `dr_mm` de `D+1`, obtido com `shift(-1)` agrupado por cenário e ciclo de cultivo. |
+| `precipitacao_observada_dia_posterior_mm` | NASA POWER + alinhamento temporal | Chuva observada em `D+1`, obtida por `shift(-1)` dentro do mesmo cenário e ciclo. É somente auditoria pós-seleção e nunca entra nas features. |
+| `deficit_agua_proximo_dia_mm` | APSIM NG | Déficit absoluto em `D+1`: `dr_mm` deslocado com `shift(-1)` dentro do mesmo cenário e ciclo. É preservado para auditoria e avaliação reconstruída. |
+| `variacao_deficit_proximo_dia_mm` | APSIM NG + cálculo próprio | **Target de treinamento**: `deficit_agua_proximo_dia_mm - dr_mm`, isto é, a mudança do déficit entre `D` e `D+1`. |
 
 ## Metadados preservados
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 if __package__ in {None, ""}:  # Compatibilidade com ``python scripts/model_dataset.py``.
@@ -29,8 +30,13 @@ else:
 DEFAULT_OUTPUT = MODEL_DATA_DIR / "training_dataset.csv"
 DOCUMENTATION = Path(__file__).resolve().parents[1] / "dataset_treinamento.md"
 GROUP_COLS = ["SimulationName", "cycle_id"]
-TARGET_COLUMN = "deficit_agua_proximo_dia_mm"
+NEXT_DEFICIT_COLUMN = "deficit_agua_proximo_dia_mm"
+VARIATION_TARGET_COLUMN = "variacao_deficit_proximo_dia_mm"
+TARGET_COLUMN = VARIATION_TARGET_COLUMN
+TARGET_COLUMNS = [NEXT_DEFICIT_COLUMN, VARIATION_TARGET_COLUMN]
 METADATA_COLUMNS = ["SimulationName", "Clock_today", "sowing_date", "cycle_id"]
+NEXT_DAY_OBSERVED_RAIN_COLUMN = "precipitacao_observada_dia_posterior_mm"
+AUDIT_COLUMNS = [NEXT_DAY_OBSERVED_RAIN_COLUMN]
 
 MAIZE_LOCATION = {
     "Alegrete": "Alegrete",
@@ -59,6 +65,9 @@ FEATURE_COLUMNS = [
     "previsao_temperatura_maxima_C",
     "previsao_temperatura_minima_C",
     "previsao_radiacao_solar_MJ_m2_dia",
+    "umidade_relativa_prevista_pct",
+    "ponto_orvalho_previsto_C",
+    "velocidade_vento_prevista_2m_m_s",
     "previsao_eto_mm_dia",
     "temperatura_media_C",
     "temperatura_maxima_C",
@@ -79,7 +88,7 @@ FEATURE_COLUMNS = [
     "taw_mm",
     "dias_desde_semeadura",
 ]
-FINAL_MODEL_COLUMNS = METADATA_COLUMNS + FEATURE_COLUMNS + [TARGET_COLUMN]
+FINAL_MODEL_COLUMNS = METADATA_COLUMNS + FEATURE_COLUMNS + AUDIT_COLUMNS + TARGET_COLUMNS
 
 
 def _load_nasa(location: str) -> pd.DataFrame:
@@ -121,6 +130,30 @@ def validate_dataset_schema(
     missing = [column for column in FINAL_MODEL_COLUMNS if column not in df.columns]
     if missing:
         raise ValueError(f"Dataset sem colunas obrigatórias: {missing}")
+    expected_variation = df[NEXT_DEFICIT_COLUMN] - df["dr_mm"]
+    if not np.allclose(df[VARIATION_TARGET_COLUMN], expected_variation):
+        raise ValueError(
+            "variacao_deficit_proximo_dia_mm deve ser igual a "
+            "deficit_agua_proximo_dia_mm - dr_mm"
+        )
+    humidity = pd.to_numeric(df["umidade_relativa_prevista_pct"], errors="coerce")
+    dew_point = pd.to_numeric(df["ponto_orvalho_previsto_C"], errors="coerce")
+    wind_2m = pd.to_numeric(
+        df["velocidade_vento_prevista_2m_m_s"], errors="coerce"
+    )
+    next_rain = pd.to_numeric(df[NEXT_DAY_OBSERVED_RAIN_COLUMN], errors="coerce")
+    if humidity.isna().any() or ((humidity < 0) | (humidity > 100)).any():
+        raise ValueError("umidade_relativa_prevista_pct deve estar em [0, 100]")
+    if dew_point.isna().any() or not np.isfinite(dew_point).all():
+        raise ValueError("ponto_orvalho_previsto_C deve conter apenas valores finitos")
+    if wind_2m.isna().any() or not np.isfinite(wind_2m).all() or (wind_2m < 0).any():
+        raise ValueError(
+            "velocidade_vento_prevista_2m_m_s deve ser finita e não negativa"
+        )
+    if next_rain.isna().any() or not np.isfinite(next_rain).all() or (next_rain < 0).any():
+        raise ValueError(
+            "precipitacao_observada_dia_posterior_mm deve ser finita e não negativa"
+        )
     text = Path(documentation_path).read_text(encoding="utf-8").lower()
     undocumented = [column for column in FINAL_MODEL_COLUMNS if column.lower() not in text]
     if undocumented:
@@ -140,7 +173,9 @@ def build_training_dataset(
     apsim["local"] = apsim["SimulationName"].map(MAIZE_LOCATION)
     if apsim["local"].isna().any():
         raise ValueError("Existe simulação APSIM sem mapeamento para Alegrete/Nova Ramada")
-    apsim[TARGET_COLUMN] = apsim.groupby(GROUP_COLS, sort=False)["Dr_root"].shift(-1)
+    apsim[NEXT_DEFICIT_COLUMN] = apsim.groupby(GROUP_COLS, sort=False)[
+        "Dr_root"
+    ].shift(-1)
 
     climate_frames = []
     forecast_frames = []
@@ -197,6 +232,10 @@ def build_training_dataset(
             "Maize.DaysAfterSowing": "dias_desde_semeadura",
         }
     )
+    df[NEXT_DAY_OBSERVED_RAIN_COLUMN] = df.groupby(GROUP_COLS, sort=False)[
+        "precipitacao_observada_mm"
+    ].shift(-1)
+    df[VARIATION_TARGET_COLUMN] = df[NEXT_DEFICIT_COLUMN] - df["dr_mm"]
     final = df[FINAL_MODEL_COLUMNS].dropna().reset_index(drop=True)
     validate_dataset_schema(final, documentation_path)
     write_csv(final, output_path)
@@ -208,7 +247,8 @@ def main() -> pd.DataFrame:
     print(f"dataset salvo em: {DEFAULT_OUTPUT}")
     print(f"linhas: {len(result)}")
     print(f"colunas: {len(result.columns)}")
-    print(f"target: {TARGET_COLUMN}")
+    print(f"target de treinamento: {TARGET_COLUMN}")
+    print(f"target absoluto preservado: {NEXT_DEFICIT_COLUMN}")
     return result
 
 

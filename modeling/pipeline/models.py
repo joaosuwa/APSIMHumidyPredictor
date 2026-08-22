@@ -13,12 +13,12 @@ from xgboost import XGBRegressor
 
 
 ModelName = Literal["xgboost", "lightgbm", "catboost"]
+ObjectiveMetric = Literal["mae", "rmse"]
 MODEL_NAMES: tuple[ModelName, ...] = ("xgboost", "lightgbm", "catboost")
-SEARCH_SPACE_VERSION = "2026-08-plan5-v1"
+SEARCH_SPACE_VERSION = "2026-08-plan7-weather-rmse-v1"
 
 
 def suggest_parameters(model_name: ModelName, trial: optuna.Trial) -> dict[str, Any]:
-    """Retorna o espaço de busca específico do algoritmo."""
     common = {
         "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.20, log=True)
     }
@@ -68,14 +68,20 @@ def build_model(
     seed: int,
     iterations: int,
     early_stopping_rounds: int | None,
+    objective_metric: ObjectiveMetric,
 ) -> Any:
-    """Instancia um modelo com parâmetros comuns de execução reproduzível."""
+    if objective_metric not in {"mae", "rmse"}:
+        raise ValueError(f"Métrica de objetivo desconhecida: {objective_metric}")
     if model_name == "xgboost":
         return XGBRegressor(
             **parameters,
             n_estimators=iterations,
-            objective="reg:absoluteerror",
-            eval_metric="mae",
+            objective=(
+                "reg:absoluteerror"
+                if objective_metric == "mae"
+                else "reg:squarederror"
+            ),
+            eval_metric=objective_metric,
             tree_method="hist",
             n_jobs=-1,
             random_state=seed,
@@ -86,7 +92,7 @@ def build_model(
         return LGBMRegressor(
             **parameters,
             n_estimators=iterations,
-            objective="l1",
+            objective="l1" if objective_metric == "mae" else "regression_l2",
             subsample_freq=1,
             n_jobs=-1,
             random_state=seed,
@@ -96,8 +102,8 @@ def build_model(
         return CatBoostRegressor(
             **parameters,
             iterations=iterations,
-            loss_function="MAE",
-            eval_metric="MAE",
+            loss_function="MAE" if objective_metric == "mae" else "RMSE",
+            eval_metric="MAE" if objective_metric == "mae" else "RMSE",
             bootstrap_type="Bayesian",
             random_seed=seed,
             thread_count=-1,
@@ -116,8 +122,8 @@ def fit_with_validation(
     y_validation: Any,
     *,
     early_stopping_rounds: int,
+    objective_metric: ObjectiveMetric,
 ) -> Any:
-    """Ajusta um modelo usando exclusivamente o fold de validação para stopping."""
     if model_name == "xgboost":
         model.fit(
             X_train,
@@ -131,7 +137,7 @@ def fit_with_validation(
             y_train,
             eval_X=X_validation,
             eval_y=y_validation,
-            eval_metric="mae",
+            eval_metric=objective_metric,
             callbacks=[
                 lgb.early_stopping(early_stopping_rounds, verbose=False),
                 lgb.log_evaluation(period=0),
@@ -152,7 +158,6 @@ def fit_with_validation(
 
 
 def best_iteration_count(model_name: ModelName, model: Any) -> int:
-    """Normaliza a melhor iteração para uma contagem de árvores iniciada em um."""
     if model_name == "xgboost":
         value = getattr(model, "best_iteration", None)
         return int(value) + 1 if value is not None else int(model.n_estimators)
@@ -175,21 +180,21 @@ def fit_final_model(
     *,
     seed: int,
     iterations: int,
+    objective_metric: ObjectiveMetric,
 ) -> Any:
-    """Treina em todo o desenvolvimento sem consultar um conjunto de validação."""
     model = build_model(
         model_name,
         parameters,
         seed=seed,
         iterations=iterations,
         early_stopping_rounds=None,
+        objective_metric=objective_metric,
     )
     model.fit(X, y)
     return model
 
 
 def save_model(model_name: ModelName, model: Any, models_dir: Path) -> Path:
-    """Persiste cada biblioteca em seu formato nativo."""
     models_dir.mkdir(parents=True, exist_ok=True)
     suffix = {"xgboost": ".ubj", "lightgbm": ".txt", "catboost": ".cbm"}[
         model_name
@@ -205,7 +210,6 @@ def save_model(model_name: ModelName, model: Any, models_dir: Path) -> Path:
 
 
 def load_trained_model(model_name: ModelName, path: str | Path) -> Any:
-    """Carrega um artefato nativo pronto para ``predict``."""
     model_path = Path(path)
     if not model_path.is_file():
         raise FileNotFoundError(f"Modelo não encontrado: {model_path}")

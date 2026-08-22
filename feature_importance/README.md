@@ -1,7 +1,7 @@
 # Feature importance por correlação
 
 Esta pasta contém o código e os resultados da análise de correlação de Pearson
-entre as features oficiais do modelo e `deficit_agua_proximo_dia_mm`.
+entre as features oficiais do modelo e `variacao_deficit_proximo_dia_mm`.
 
 ## Executar
 
