@@ -1,0 +1,61 @@
+ANÁLISE DE FEATURE IMPORTANCE POR CORRELAÇÃO (CA)
+======================================================
+
+Metodologia
+-----------
+Target: deficit_agua_proximo_dia_mm
+Método: correlação de Pearson entre cada feature e o target.
+Importância: valor absoluto da correlação (|r|).
+Ordenação: |r| decrescente; empates resolvidos pelo nome da feature.
+O sinal de r indica a direção da associação linear.
+
+Amostra
+-------
+Observações: 4036
+Features avaliadas: 32
+Simulações: Alegrete, AlegreteClay, Simulation, SimulationClay
+Ciclos: 0, 1, 2, 3, 4, 5, 6
+Partição: dataset filtrado completo; inclui o ciclo 6 reservado como holdout no fluxo de modelagem.
+Correlações indefinidas: 0
+
+Ranking completo
+----------------
+01. dr_mm | r=+0.996095 | |r|=0.996095 | direção=positiva | status=ok
+02. etr_acumulado_mm | r=+0.746157 | |r|=0.746157 | direção=positiva | status=ok
+03. umidade_relativa_pct | r=-0.740928 | |r|=0.740928 | direção=negativa | status=ok
+04. month_sin | r=+0.738913 | |r|=0.738913 | direção=positiva | status=ok
+05. doy_sin | r=+0.732952 | |r|=0.732952 | direção=positiva | status=ok
+06. gdd_acumulado_C_dia | r=+0.697449 | |r|=0.697449 | direção=positiva | status=ok
+07. dias_desde_semeadura | r=+0.674216 | |r|=0.674216 | direção=positiva | status=ok
+08. previsao_eto_mm_dia | r=+0.667151 | |r|=0.667151 | direção=positiva | status=ok
+09. doy_cos | r=+0.652935 | |r|=0.652935 | direção=positiva | status=ok
+10. temperatura_maxima_C | r=+0.641593 | |r|=0.641593 | direção=positiva | status=ok
+11. previsao_temperatura_maxima_C | r=+0.584539 | |r|=0.584539 | direção=positiva | status=ok
+12. month_cos | r=+0.578897 | |r|=0.578897 | direção=positiva | status=ok
+13. temperatura_media_C | r=+0.575353 | |r|=0.575353 | direção=positiva | status=ok
+14. drenagem_mm | r=-0.536689 | |r|=0.536689 | direção=negativa | status=ok
+15. profundidade_radicular_mm | r=+0.526250 | |r|=0.526250 | direção=positiva | status=ok
+16. taw_mm | r=+0.488209 | |r|=0.488209 | direção=positiva | status=ok
+17. radiacao_solar_MJ_m2_dia | r=+0.474929 | |r|=0.474929 | direção=positiva | status=ok
+18. previsao_radiacao_solar_MJ_m2_dia | r=+0.465215 | |r|=0.465215 | direção=positiva | status=ok
+19. temperatura_minima_C | r=+0.412414 | |r|=0.412414 | direção=positiva | status=ok
+20. previsao_temperatura_minima_C | r=+0.364164 | |r|=0.364164 | direção=positiva | status=ok
+21. umidade_solo_passada_3d_mm | r=+0.252115 | |r|=0.252115 | direção=positiva | status=ok
+22. umidade_solo_passada_2d_mm | r=+0.237648 | |r|=0.237648 | direção=positiva | status=ok
+23. umidade_solo_passada_1d_mm | r=+0.222785 | |r|=0.222785 | direção=positiva | status=ok
+24. precipitacao_observada_mm | r=-0.209473 | |r|=0.209473 | direção=negativa | status=ok
+25. umidade_solo_mm | r=+0.207571 | |r|=0.207571 | direção=positiva | status=ok
+26. chuva_irrigacao_passada_1d_mm | r=-0.201931 | |r|=0.201931 | direção=negativa | status=ok
+27. chuva_irrigacao_passada_3d_mm | r=-0.193233 | |r|=0.193233 | direção=negativa | status=ok
+28. chuva_irrigacao_passada_2d_mm | r=-0.193086 | |r|=0.193086 | direção=negativa | status=ok
+29. etreal_mm_dia | r=+0.169532 | |r|=0.169532 | direção=positiva | status=ok
+30. escoamento_superficial_mm | r=-0.158091 | |r|=0.158091 | direção=negativa | status=ok
+31. previsao_chuva_24h_mm | r=-0.152945 | |r|=0.152945 | direção=negativa | status=ok
+32. velocidade_vento_m_s | r=-0.033975 | |r|=0.033975 | direção=negativa | status=ok
+
+Interpretação e limitações
+--------------------------
+A correlação mede associação linear marginal, não causalidade.
+Uma baixa correlação não exclui relações não lineares ou interações entre features.
+Features correlacionadas entre si podem apresentar importâncias marginais semelhantes.
+Como todos os ciclos foram usados, este resultado é descritivo e não está isolado do holdout.
