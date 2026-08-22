@@ -72,13 +72,13 @@ tem observação do dia seguinte. As previsões de chuva, temperatura e radiaç�
 são as previsões disponíveis em `D` para `D+1`. O detalhamento completo está em
 [`dataset_treinamento.md`](dataset_treinamento.md).
 
-### Preparação dos dados de modelagem
+### Preparação e treinamento dos modelos
 
-Instale as dependências e execute o orquestrador sem treinar modelos:
+Instale as dependências e execute o pipeline completo:
 
 ```bash
 python -m pip install -r requirements-modeling.txt
-python modeling/main.py
+python modeling/main.py --trials 50 --seed 42
 ```
 
 A configuração tipada em `modeling/config.py` seleciona as simulações e os
@@ -88,3 +88,11 @@ treina nos demais ciclos. Por padrão, o ciclo `6` permanece intocado no teste e
 os ciclos `0–5` formam seis folds de cross-validation. As colunas diretas de
 irrigação permanecem no CSV para auditoria, mas ficam fora das features desta
 configuração não irrigada.
+
+O treinamento compara XGBoost, LightGBM e CatBoost. Os hiperparâmetros são
+otimizados com Optuna pelo MAE das previsões out-of-fold dos ciclos `0–5`; o
+ciclo `6` só é avaliado depois da escolha do campeão. Modelos, métricas,
+previsões e gráficos são gravados em `modeling/artifacts/default`.
+
+A lógica completa, os espaços de busca, as regras contra vazamento e a lista
+de artefatos estão documentados em [`modeling/TRAINING.md`](modeling/TRAINING.md).

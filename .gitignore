@@ -226,4 +226,5 @@ __marimo__/
 gdex_token.txt
 
 /plans/*
+/modeling/artifacts/
 scripts/gfs_data_extractor/metadata.txt
