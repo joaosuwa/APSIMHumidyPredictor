@@ -81,8 +81,12 @@ experimentos futuros, mas não fazem parte das features da configuração atual 
 
 As simulações APSIM com nome iniciado por `Alegrete` usam os arquivos de clima
 de Alegrete. As simulações `Simulation*` usam Nova Ramada. Os dados NASA POWER,
-GFS e APSIM são unidos pela localidade e pela data. As variáveis meteorológicas
-do GFS são alinhadas como previsão disponível em `D` para `D+1`.
+GFS e APSIM são unidos pela localidade e pela data. Antes dessa união, a chave
+de data das previsões GFS é recuada em um dia. Portanto, uma previsão
+meteorológica originalmente associada a `D+1` é colocada na linha APSIM de `D`
+e usada para estimar a variação do déficit entre `D` e `D+1`. O deslocamento é
+feito pela data, e não pela posição das linhas, para que uma eventual lacuna no
+forecast não associe dias incorretos.
 
 Os produtos GFS de horizonte de 24 horas (`A PCP`, `U GRD`, `V GRD`, `R H` e
 `DPT`) mantêm somente o registro de `00:00`. Como a data registrada no CSV
@@ -93,16 +97,19 @@ representa o final do horizonte, a data de inicialização é calculada como
 Tmax, Tmin e DSWRF são diferentes: cada dia é formado pelos quatro produtos de
 seis horas `0–6`, `6–12`, `12–18` e `18–24`. Os três primeiros terminam às
 `06:00`, `12:00` e `18:00`; o último termina às `00:00` do dia seguinte e é
-associado ao mesmo dia de inicialização. Não há um segundo deslocamento depois
-dessa consolidação. Dias sem os quatro intervalos são descartados.
+associado ao mesmo dia de inicialização. Dias sem os quatro intervalos são
+descartados. Essa consolidação permanece inalterada nos CSVs GFS processados;
+o recuo de um dia ocorre somente ao montar o dataset de treinamento.
 
 O pipeline grava todas essas variáveis em um único arquivo por localidade:
 `gfs_daily_forecast_Alegrete.csv` ou `gfs_daily_forecast_Nova_Ramada.csv`.
 
 Para a ETo, U/V são combinados em velocidade do vento a 10 m e convertidos
 para 2 m. O DPT em Kelvin é convertido para Celsius e usado preferencialmente
-para calcular a pressão real de vapor; RH é usado como fallback. A pressão
-atmosférica é estimada pela altitude configurada para cada localidade:
+para calcular a pressão real de vapor; RH é usado como fallback. A ETo é
+calculada com a data meteorológica original de `D+1`; somente depois sua chave
+de associação é recuada para a linha `D`. A pressão atmosférica é estimada pela
+altitude configurada para cada localidade:
 
 - Alegrete: 102 m;
 - Nova Ramada: 511 m.

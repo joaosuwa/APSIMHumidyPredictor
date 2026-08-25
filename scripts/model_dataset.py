@@ -115,11 +115,16 @@ def _load_gfs_forecasts(location: str) -> pd.DataFrame:
     forecast["date"] = pd.to_datetime(forecast["date"], errors="coerce")
     if forecast["date"].isna().any() or forecast["date"].duplicated().any():
         raise ValueError(f"Datas inválidas ou duplicadas no forecast GFS: {path}")
-    return add_fao56_eto(
+    forecast = add_fao56_eto(
         forecast,
         latitude_deg=site.latitude,
         elevation_m=site.elevation_m,
     )
+    # O arquivo GFS associa as variáveis ao dia meteorológico previsto. Para a
+    # linha D do modelo usar a previsão de D+1, recuamos somente a chave de
+    # merge. A ETo precisa ser calculada antes, com o dia meteorológico original.
+    forecast["date"] -= pd.Timedelta(days=1)
+    return forecast
 
 
 def validate_dataset_schema(
